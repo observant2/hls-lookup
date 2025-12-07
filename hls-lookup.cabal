@@ -68,6 +68,7 @@ executable hls-lookup
                     , HieReader.SymbolLookup
                     , PackageDownload
                     , ModuleLookup
+                    , Util
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

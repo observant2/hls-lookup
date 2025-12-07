@@ -5,6 +5,7 @@ where
 
 import Data.Char (isDigit)
 import Data.List qualified as L (break, reverse, span)
+import Util (splitOn)
 
 -- | Parse package name and version from UnitId string
 --  Format: "pkgname-1.2.3.4" or "pkgname-1.2.3.4-hash" or "pkgname-1.2.3.4:libname+hash"
@@ -23,13 +24,6 @@ parseUnitId unitStr =
             then L.reverse rest
             else L.reverse parts
    in extractNameVersion (L.reverse partsNoHash)
-
--- | Split string on a character
-splitOn :: Char -> String -> [String]
-splitOn _ "" = []
-splitOn c s = case L.break (== c) s of
-  (chunk, "") -> [chunk]
-  (chunk, _ : rest) -> chunk : splitOn c rest
 
 -- | Check if a string looks like a hash (long hex string)
 isHash :: String -> Bool
