@@ -22,23 +22,35 @@ parseUnitId unitStr =
         (lastPart : rest) ->
           if isHash lastPart
             then L.reverse rest
-            else L.reverse parts
-   in extractNameVersion (L.reverse partsNoHash)
+            else parts
+   in extractNameVersion partsNoHash
+
+-- | Check if a character is a hexadecimal digit
+isHexChar :: Char -> Bool
+isHexChar c = isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 
 -- | Check if a string looks like a hash (long hex string)
 isHash :: String -> Bool
 isHash s = length s > 32 && all isHexChar s
-  where
-    isHexChar c = isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 
--- | Extract version parts from the end (already reversed)
+-- | Check if a string looks like a short hash (all hex, but <= 32 chars)
+isShortHash :: String -> Bool
+isShortHash s = not (null s) && length s <= 32 && all isHexChar s
+
+-- | Extract version parts from the end, working backwards
 extractNameVersion :: [String] -> (Maybe String, Maybe String)
 extractNameVersion [] = (Nothing, Nothing)
 extractNameVersion parts =
-  let (versionParts, nameParts) = L.span isVersionPart parts
+  let -- Reverse to work from the end
+      reversedParts = L.reverse parts
+      -- Remove potential short hash from the end first (e.g., "abc123")
+      partsAfterHash = case reversedParts of
+        (h : rest) | isShortHash h -> rest
+        _ -> reversedParts
+      -- Take version parts from the end
+      (versionParts, nameParts) = L.span isVersionPart partsAfterHash
    in case (nameParts, versionParts) of
         ([], _) -> (Nothing, Nothing) -- No package name
-        -- TODO: this part is super confusing with the reverse stuff
         (_, []) -> (Just $ concatWith "-" (L.reverse nameParts), Nothing) -- No version
         _ ->
           ( Just $ concatWith "-" (L.reverse nameParts),

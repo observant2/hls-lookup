@@ -54,26 +54,16 @@ common warnings
         -fwrite-ide-info
         -hiedir=.hie
 
-executable hls-lookup
-    -- Import common warning flags.
+library
     import:           warnings
-
-    -- .hs or .lhs file containing the Main module.
-    main-is:          Main.hs
-
-    -- Modules included in this executable, other than Main.
-    other-modules:    HieReader
+    exposed-modules:  HieReader
                     , HieReader.Types
                     , HieReader.Parser
                     , HieReader.SymbolLookup
                     , PackageDownload
                     , ModuleLookup
+                    , DefinitionFinder
                     , Util
-
-    -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
-
-    -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.21.0.0
                     , http-conduit
                     , tar
@@ -84,11 +74,40 @@ executable hls-lookup
                     , ghc >= 8.8
                     , array
                     , containers
-
-    -- Directories containing source files.
     hs-source-dirs:   app
+    default-language: GHC2024
+    default-extensions: OverloadedRecordDot
+                      , DuplicateRecordFields
+                      , ApplicativeDo
+                      , OverloadedStrings
 
-    -- Base language which the package is written in.
+executable hls-lookup
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:    base ^>=4.21.0.0
+                    , hls-lookup
+    hs-source-dirs:   app
+    default-language: GHC2024
+    default-extensions: OverloadedRecordDot
+                      , DuplicateRecordFields
+                      , ApplicativeDo
+                      , OverloadedStrings
+
+test-suite hls-lookup-tests
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test
+    other-modules:    Test.HieReader.Parser
+                    , Test.ModuleLookup
+                    , Test.DefinitionFinder
+    build-depends:    base ^>=4.21.0.0
+                    , hls-lookup
+                    , tasty
+                    , tasty-hunit
+                    , filepath
+                    , directory
+                    , temporary
     default-language: GHC2024
     default-extensions: OverloadedRecordDot
                       , DuplicateRecordFields
