@@ -84,9 +84,12 @@ library
 executable hls-lookup
     import:           warnings
     main-is:          Main.hs
+    other-modules:    Types
     build-depends:    base ^>=4.21.0.0
                     , hls-lookup
                     , process
+                    , aeson
+                    , bytestring
     hs-source-dirs:   exe
     default-language: GHC2024
     default-extensions: OverloadedRecordDot

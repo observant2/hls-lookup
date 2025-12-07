@@ -5,7 +5,7 @@ module DefinitionFinder
 where
 
 import Data.Char (isAlphaNum, isSpace)
-import Data.List (isPrefixOf)
+import qualified Data.List as L
 
 -- | Location of a definition in a file
 data DefinitionLocation = DefinitionLocation
@@ -19,13 +19,13 @@ data DefinitionLocation = DefinitionLocation
 findDefinition :: FilePath -> String -> IO (Maybe DefinitionLocation)
 findDefinition filePath symbolName = do
   content <- readFile filePath
-  let linesWithNum = zip [1 ..] (lines content)
+  let linesWithNum = L.zip [1 ..] (lines content)
   pure $ findInLines symbolName linesWithNum
 
 -- | Search for a symbol definition in numbered lines
 findInLines :: String -> [(Int, String)] -> Maybe DefinitionLocation
 findInLines symbolName linesWithNum =
-  case filter (isDefinitionLine symbolName . snd) linesWithNum of
+  case L.filter (isDefinitionLine symbolName . snd) linesWithNum of
     [] -> Nothing
     ((lineNum, lineContent) : _) ->
       Just $
@@ -37,7 +37,7 @@ findInLines symbolName linesWithNum =
 -- | Check if a line contains a definition of the symbol
 isDefinitionLine :: String -> String -> Bool
 isDefinitionLine symbolName lineContent =
-  let trimmed = dropWhile isSpace lineContent
+  let trimmed = L.dropWhile isSpace lineContent
    in or
         [ isTypeSignature symbolName trimmed,
           isFunctionDefinition symbolName trimmed,
@@ -52,7 +52,7 @@ isDefinitionLine symbolName lineContent =
 isTypeSignature :: String -> String -> Bool
 isTypeSignature symbolName line =
   let pattern = symbolName ++ " ::"
-   in pattern `isPrefixOf` line && checkBoundary symbolName line
+   in pattern `L.isPrefixOf` line && checkBoundary symbolName line
 
 -- | Check for function definition: "symbolName = " or "symbolName x y = "
 isFunctionDefinition :: String -> String -> Bool
@@ -62,13 +62,13 @@ isFunctionDefinition symbolName line =
     (firstWord : rest) ->
       firstWord == symbolName
         && checkBoundary symbolName line
-        && (null rest || "=" `elem` rest || notElem '=' (unwords rest))
+        && (null rest || "=" `L.elem` rest || L.notElem '=' (unwords rest))
 
 -- | Check for data constructor: "data Foo = SymbolName" or "| SymbolName"
 isDataConstructor :: String -> String -> Bool
 isDataConstructor symbolName line =
   case words line of
-    ("data" : _ : rest) -> any (symbolNameMatches symbolName) rest
+    ("data" : _ : rest) -> L.any (symbolNameMatches symbolName) rest
     ("|" : name : _) -> symbolNameMatches symbolName name
     _ -> False
 
@@ -90,27 +90,27 @@ isNewtypeDefinition symbolName line =
 isClassDefinition :: String -> String -> Bool
 isClassDefinition symbolName line =
   case words line of
-    ("class" : rest) -> any (symbolNameMatches symbolName) (removeContext rest)
+    ("class" : rest) -> L.any (symbolNameMatches symbolName) (removeContext rest)
     _ -> False
 
 -- | Check for instance definition: "instance SymbolName" or "instance (Context) => SymbolName"
 isInstanceDefinition :: String -> String -> Bool
 isInstanceDefinition symbolName line =
   case words line of
-    ("instance" : rest) -> any (symbolNameMatches symbolName) (removeContext rest)
+    ("instance" : rest) -> L.any (symbolNameMatches symbolName) (removeContext rest)
     _ -> False
 
 -- | Remove context from type class or instance declaration
 -- Drops everything before "=>" if present
 removeContext :: [String] -> [String]
-removeContext ws = case dropWhile (\w -> w /= "=>") ws of
+removeContext ws = case L.dropWhile (/= "=>") ws of
   [] -> ws
   (_ : rest) -> rest
 
 -- | Check if symbol name matches, handling type applications
 symbolNameMatches :: String -> String -> Bool
 symbolNameMatches symbolName word =
-  let cleaned = takeWhile (\c -> isAlphaNum c || c == '_' || c == '\'') word
+  let cleaned = L.takeWhile (\c -> isAlphaNum c || c == '_' || c == '\'') word
    in cleaned == symbolName
 
 -- | Check that the symbol is a whole word (not part of a larger identifier)
@@ -120,7 +120,7 @@ checkBoundary symbolName line =
     "" -> False
     str ->
       let afterSymbol = drop (length symbolName) str
-       in symbolName `isPrefixOf` str
+       in symbolName `L.isPrefixOf` str
             && case afterSymbol of
               [] -> True
               (c : _) -> not (isAlphaNum c || c == '_' || c == '\'')
@@ -128,5 +128,5 @@ checkBoundary symbolName line =
 -- | Find the column number where the symbol starts
 findColumn :: String -> String -> Int
 findColumn _ lineContent =
-  let spaces = length (takeWhile isSpace lineContent)
+  let spaces = L.length (L.takeWhile isSpace lineContent)
    in spaces + 1 -- 1-indexed

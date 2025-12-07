@@ -9,6 +9,7 @@ import Codec.Compression.GZip qualified as GZip
 import Network.HTTP.Simple (getResponseBody, httpLBS, parseRequest)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, getHomeDirectory)
 import System.FilePath ((</>))
+import Util (putErr)
 
 -- | Get the cache directory for downloaded packages
 -- Creates ~/.hls-lookup/haskell-sources/ if it doesn't exist
@@ -37,9 +38,9 @@ downloadPackage name version = do
   exists <- doesDirectoryExist targetDir
   if exists
     then do
-      putStrLn $ "Already cached: " ++ targetDir
+      putErr $ "Already cached: " ++ targetDir
     else do
-      putStrLn $ "Downloading " ++ name ++ "-" ++ version ++ "..."
+      putErr $ "Downloading " ++ name ++ "-" ++ version ++ "..."
 
       -- Download
       request <- parseRequest $ hackageUrl name version
@@ -47,10 +48,10 @@ downloadPackage name version = do
       let tarball = getResponseBody response
 
       -- Extract
-      putStrLn $ "Extracting to " ++ cache ++ "..."
+      putErr $ "Extracting to " ++ cache ++ "..."
       let entries = Tar.read . GZip.decompress $ tarball
       Tar.unpack cache entries
 
-      putStrLn $ "Cached: " ++ targetDir
+      putErr $ "Cached: " ++ targetDir
 
   pure targetDir
