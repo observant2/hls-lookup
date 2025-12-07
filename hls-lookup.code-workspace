@@ -1,0 +1,15 @@
+{
+    "folders": [
+        {
+            "name": "CLI",
+            "path": "./cli"
+        },
+        {
+            "name": "VSCode Extension",
+            "path": "./vscode-extension"
+        }
+    ],
+    "settings": {
+        "haskell.manageHLS": "GHCup"
+    }
+}
