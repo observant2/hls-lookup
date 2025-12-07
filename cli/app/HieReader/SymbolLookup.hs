@@ -1,7 +1,6 @@
 module HieReader.SymbolLookup
   ( getSymbolsAtPosition,
     containsPosition,
-    isBootLibrary,
   )
 where
 
@@ -69,18 +68,6 @@ extractFromNodeInfo :: RealSrcSpan -> NodeInfo a -> [SymbolInfo]
 extractFromNodeInfo span (NodeInfo _ _ identMap) =
   [nameToSymbolInfo span name | (Right name, _) <- Map.toList identMap]
 
--- | Check if a symbol is from a GHC boot library (base, ghc-internal, etc.)
-isBootLibrary :: SymbolInfo -> Bool
-isBootLibrary sym = case sym.rawUnitId of
-  Nothing -> False
-  Just unitId ->
-    any (`isPrefixOf` unitId) ["ghc-", "base-", "ghc-prim-", "ghc-bignum-"]
-  where
-    isPrefixOf :: String -> String -> Bool
-    isPrefixOf [] _ = True
-    isPrefixOf _ [] = False
-    isPrefixOf (x : xs) (y : ys) = x == y && isPrefixOf xs ys
-
 -- | Keep only symbols from the most specific (last/deepest) span
 -- The AST traversal is depth-first with parents before children,
 -- so the last symbols are from the innermost/most specific node
@@ -91,12 +78,11 @@ filterSmallestSpan symbols =
    in filter (\sym -> sym.span == lastSpan) symbols
 
 -- | Get all symbols at a specific line and column
+-- Returns symbols from the most specific (innermost) span only
 getSymbolsAtPosition :: HieFile -> Int -> Int -> [SymbolInfo]
 getSymbolsAtPosition hieFile line col =
   let asts = getAsts hieFile.hie_asts
       allSymbols = concatMap (findSymbolsInAST line col) $ Map.elems asts
-      -- Filter out GHC boot libraries (ghc-internal, base, etc.) since HLS handles these
-      nonBootSymbols = filter (not . isBootLibrary) allSymbols
       -- Keep only symbols with the smallest (most specific) span
-      smallestSymbols = filterSmallestSpan nonBootSymbols
+      smallestSymbols = filterSmallestSpan allSymbols
    in smallestSymbols

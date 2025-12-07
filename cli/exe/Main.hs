@@ -7,18 +7,15 @@ import ModuleLookup (findModuleFile)
 import DefinitionFinder (findDefinition, DefinitionLocation(..))
 import System.Process (callCommand)
 import System.Exit (exitFailure)
-import Data.Maybe ( fromMaybe )
 import Types (GotoResponse(GotoResponse))
 import Data.Aeson as Aeson ( encode )
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Util (putErr)
-import HieReader.Types ( SymbolInfo )
 import Control.Monad.Except
-    ( ExceptT, runExceptT, liftEither, MonadError(throwError) )
+    ( ExceptT, runExceptT, MonadError(throwError) )
 import Control.Monad.IO.Class (liftIO)
+import Data.List (isPrefixOf)
 import qualified PlanLookup
-import Data.List (isPrefixOf, isSuffixOf)
-import Control.Monad (when)
 
 data GotoAction 
     = Print 
@@ -73,25 +70,7 @@ main = do
                         \  hls-lookup goto-print <source-file> <line> <col>  - Find and print definition location\n\
                         \  hls-lookup goto-json <source-file> <line> <col>   - Find and print definition location as json"
 
-extractSymbolInfo :: [SymbolInfo] -> Either String (String, String, String, String)
-extractSymbolInfo [] = Left "No symbol found at the specified position"
-extractSymbolInfo (sym:_) = do
-    -- Get module name (required)
-    modName <- case sym.symModule of
-        Just m -> Right m
-        Nothing -> Left "No module name in symbol info"
-
-    -- Get package name and version (try direct fields first, then parse unit ID)
-    (pkgName, pkgVer) <- case (sym.packageName, sym.packageVersion) of
-        (Just pn, Just pv) -> Right (pn, pv)
-        _ -> -- Either or both are missing, try parsing unit ID
-            case sym.rawUnitId >>= parseUnitId of
-                Just (pn, pv) -> Right (pn, pv)
-                Nothing -> Left $ "Could not parse package info from Unit ID: " ++ fromMaybe "<none>" sym.rawUnitId
-
-    return (modName, pkgName, pkgVer, sym.name)
-
--- | Parse unit ID to extract package name and version
+-- | Parse unit ID to extract package name and version (fallback when plan.json unavailable)
 -- Example: "tar-0.7.0.0-l-tar-internal-abc..." -> Just ("tar", "0.7.0.0")
 parseUnitId :: String -> Maybe (String, String)
 parseUnitId unitId =
@@ -113,22 +92,33 @@ gotoDefinition srcFile line col gotoAction = do
         liftIO $ putErr $ "Finding symbol at " ++ show line ++ ":" ++ show col
         let symbols = reverse $ HR.getSymbolsAtPosition hieFile line col
 
-        -- Step 3: Check if local package FIRST (before extracting package info)
-        when (not (null symbols)) $ do
-            let firstSymbol = head symbols
-            case firstSymbol.rawUnitId of
-                Just unitId -> do
-                    -- Check plan.json first
-                    isLocal <- liftIO $ PlanLookup.isLocalPackage unitId
-                    -- Fallback: heuristic check for -inplace suffix (local packages)
-                    let localByHeuristic = "-inplace" `isSuffixOf` unitId
-                    when (isLocal == Just True || localByHeuristic) $ do
-                        liftIO $ putErr $ "Symbol from local package: " ++ unitId
-                        throwError "Local package - skipping"
-                Nothing -> pure ()
+        -- Step 3: Get package info from plan.json (or fall back to HIE file)
+        let firstSymbol = head symbols
+            symName = firstSymbol.name
 
-        -- Step 4: Extract symbol info (only needed for external packages)
-        (modName, pkgName, pkgVer, symName) <- liftEither $ extractSymbolInfo symbols
+        -- Get module name (always needed)
+        modName <- case firstSymbol.symModule of
+            Just m -> pure m
+            Nothing -> throwError "No module name in symbol info"
+
+        -- Get package name and version
+        (pkgName, pkgVer) <- case firstSymbol.rawUnitId of
+            Just unitId -> do
+                action <- liftIO $ PlanLookup.shouldDownloadPackage unitId
+                case action of
+                    PlanLookup.ShouldDownload name ver -> do
+                        liftIO $ putErr $ "External Hackage package: " ++ name ++ "-" ++ ver
+                        pure (name, ver)
+                    PlanLookup.InternalPackage -> do
+                        liftIO $ putErr $ "Skipping internal package: " ++ unitId
+                        throwError "Not an external Hackage package - skipping"
+                    PlanLookup.UseHie -> do
+                        liftIO $ putErr "Plan.json not available, parsing from HIE file..."
+                        -- Fall back to parsing unit ID
+                        case parseUnitId unitId of
+                            Just (name, ver) -> pure (name, ver)
+                            Nothing -> throwError $ "Could not parse package info from Unit ID: " ++ unitId
+            Nothing -> throwError "No unit ID in symbol info"
 
         -- Step 5: Download package
         liftIO $ putErr $ "Found symbol: " ++ symName
@@ -162,8 +152,8 @@ gotoDefinition srcFile line col gotoAction = do
     -- Handle the result
     case result of
         Left err -> do
-            if "Local package" `isPrefixOf` err
-                then printJsonFailure "Symbol is from a local package"
+            if "Not an external Hackage package" `isPrefixOf` err
+                then printJsonFailure "Symbol is not from an external Hackage package"
                 else do
                     putErr $ "Error: " ++ err
                     exitFailure

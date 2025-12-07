@@ -76,6 +76,7 @@ library
                     , array
                     , containers
                     , cabal-plan ^>=0.7
+                    , text
     hs-source-dirs:   app
     default-language: GHC2024
     default-extensions: OverloadedRecordDot

@@ -9,7 +9,6 @@ module HieReader
     -- * Symbol lookup
     getSymbolsAtPosition,
     containsPosition,
-    isBootLibrary,
 
     -- * Parsing utilities
     parseUnitId,
@@ -27,7 +26,7 @@ import GHC.Types.Name.Cache (initNameCache)
 import GHC.Unit.Module (moduleName, moduleNameString)
 import GHC.Unit.Types (Module)
 import HieReader.Parser (parseUnitId)
-import HieReader.SymbolLookup (containsPosition, getSymbolsAtPosition, isBootLibrary)
+import HieReader.SymbolLookup (containsPosition, getSymbolsAtPosition)
 import HieReader.Types (SymbolInfo (..))
 import System.Directory (doesFileExist)
 import System.FilePath (takeBaseName, (<.>), (</>))

@@ -17,74 +17,9 @@ export class HlsLookupDefinitionProvider implements vscode.DefinitionProvider {
       return undefined;
     }
 
-    const symbol = document.getText(wordRange);
-
-    // Only invoke hls-lookup for symbols that are likely from external packages
-    // This avoids unnecessary calls when HLS can handle it
-    if (!this.shouldTryHlsLookup(document, symbol)) {
-      return undefined;
-    }
-
-    // Try hls-lookup for external package symbols
+    // Call hls-lookup for all symbols
+    // The CLI will determine if it's a local/boot library (skip) or external package (download)
     return await this.tryHlsLookup(document, position, token);
-  }
-
-  private shouldTryHlsLookup(
-    document: vscode.TextDocument,
-    symbol: string
-  ): boolean {
-    // Check if symbol is imported from an external package
-    // by looking at the import statements in the file
-    const text = document.getText();
-    const imports = this.extractImports(text);
-
-    // If symbol appears in an import from an external package, try hls-lookup
-    for (const imp of imports) {
-      if (imp.symbols.includes(symbol) && this.isExternalPackage(imp.moduleName)) {
-        return true;
-      }
-    }
-
-    // Also try if it's a qualified name (e.g., HTTP.httpLBS)
-    if (symbol.includes('.')) {
-      return true;
-    }
-
-    return false;
-  }
-
-  private extractImports(text: string): Array<{moduleName: string, symbols: string[]}> {
-    const imports: Array<{moduleName: string, symbols: string[]}> = [];
-
-    // Match: import [qualified] ModuleName [(symbol1, symbol2, ...)]
-    const importRegex = /import\s+(?:qualified\s+)?([A-Z][A-Za-z0-9.]*)\s*(?:\((.*?)\))?/g;
-
-    let match;
-    while ((match = importRegex.exec(text)) !== null) {
-      const moduleName = match[1];
-      const symbolList = match[2]
-        ? match[2].split(',').map(s => s.trim().replace(/\(.*?\)/, '').trim())
-        : [];
-      imports.push({ moduleName, symbols: symbolList });
-    }
-
-    return imports;
-  }
-
-  private isExternalPackage(moduleName: string): boolean {
-    // Common standard library modules that HLS handles well
-    const stdLibModules = [
-      'Prelude', 'Data.List', 'Data.Maybe', 'Data.Either',
-      'Control.Monad', 'Control.Applicative', 'System.IO',
-      'Data.Map', 'Data.Set', 'Data.Text', 'Data.ByteString',
-      'Control.Exception', 'System.Environment', 'Data.Char',
-      'Data.Bool', 'Data.Function', 'Data.Tuple', 'Text.Read',
-      'Text.Show', 'Data.Ord', 'Data.Eq', 'Data.Foldable',
-      'Data.Traversable', 'Control.Arrow', 'Data.Monoid'
-    ];
-
-    // If it starts with a common stdlib prefix, let HLS handle it
-    return !stdLibModules.some(std => moduleName.startsWith(std));
   }
 
   private async tryHlsLookup(

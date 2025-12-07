@@ -24,6 +24,7 @@ commonSourceDirs :: [FilePath]
 commonSourceDirs =
   [ "src",
     "lib",
+    "library",
     "source",
     "app",
     "" -- root directory
