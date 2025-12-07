@@ -86,7 +86,8 @@ executable hls-lookup
     main-is:          Main.hs
     build-depends:    base ^>=4.21.0.0
                     , hls-lookup
-    hs-source-dirs:   app
+                    , process
+    hs-source-dirs:   exe
     default-language: GHC2024
     default-extensions: OverloadedRecordDot
                       , DuplicateRecordFields
