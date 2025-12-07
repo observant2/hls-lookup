@@ -23,14 +23,8 @@ cacheDir = do
 hackageUrl :: String -> String -> String
 hackageUrl name version =
   "https://hackage.haskell.org/package/"
-    ++ name
-    ++ "-"
-    ++ version
-    ++ "/"
-    ++ name
-    ++ "-"
-    ++ version
-    ++ ".tar.gz"
+    ++ name ++ "-" ++ version ++ "/"
+    ++ name ++ "-" ++ version ++ ".tar.gz"
 
 -- | Download and extract a package from Hackage
 -- Returns the path to the extracted package directory

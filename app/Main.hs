@@ -3,6 +3,7 @@ module Main where
 import qualified HieReader as HR
 import PackageDownload (downloadPackage)
 import System.Environment (getArgs)
+import ModuleLookup (findModuleFile)
 
 main :: IO ()
 main = do
@@ -28,4 +29,13 @@ main = do
                 Nothing -> putStrLn $ "No .hie file found for " ++ srcFile
                 Just hiePath -> HR.findSymbolAt hiePath line col
                     
-        _ -> putStrLn "Usage: hls-lookup download <package> <version>\n       hls-lookup inspect-hie <source-file>"
+        ["test-module-lookup", packageName, version, moduleName] -> do
+            packageDir <- downloadPackage packageName version
+            putStrLn $ "Looking for module: " ++ moduleName
+            mFilePath <- findModuleFile packageDir moduleName
+            case mFilePath of
+                Nothing -> putStrLn $ "Module not found: " ++ moduleName
+                Just filePath -> putStrLn $ "Found module at: " ++ filePath
+
+        _ -> putStrLn $ "Usage: hls-lookup download <package> <version>\n       hls-lookup inspect-hie <source-file>\n       "
+                        <> "hls-lookup find-symbol <source-file> <line> <col>\n     hls-lookup test-module-lookup <package> <version> <module>"
