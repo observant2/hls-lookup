@@ -63,6 +63,7 @@ library
                     , PackageDownload
                     , ModuleLookup
                     , DefinitionFinder
+                    , PlanLookup
                     , Util
     build-depends:    base ^>=4.21.0.0
                     , http-conduit
@@ -74,6 +75,7 @@ library
                     , ghc >= 8.8
                     , array
                     , containers
+                    , cabal-plan ^>=0.7
     hs-source-dirs:   app
     default-language: GHC2024
     default-extensions: OverloadedRecordDot

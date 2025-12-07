@@ -16,6 +16,9 @@ import HieReader.Types ( SymbolInfo )
 import Control.Monad.Except
     ( ExceptT, runExceptT, liftEither, MonadError(throwError) )
 import Control.Monad.IO.Class (liftIO)
+import qualified PlanLookup
+import Data.List (isPrefixOf, isSuffixOf)
+import Control.Monad (when)
 
 data GotoAction 
     = Print 
@@ -72,10 +75,31 @@ main = do
 
 extractSymbolInfo :: [SymbolInfo] -> Either String (String, String, String, String)
 extractSymbolInfo [] = Left "No symbol found at the specified position"
-extractSymbolInfo (sym:_) =
-    case (sym.symModule, sym.packageName, sym.packageVersion) of
-        (Just modName, Just pkgName, Just pkgVer) -> Right (modName, pkgName, pkgVer, sym.name)
-        _ -> Left $ "Could not determine package information. Raw Unit ID: " ++ fromMaybe "<none>" sym.rawUnitId
+extractSymbolInfo (sym:_) = do
+    -- Get module name (required)
+    modName <- case sym.symModule of
+        Just m -> Right m
+        Nothing -> Left "No module name in symbol info"
+
+    -- Get package name and version (try direct fields first, then parse unit ID)
+    (pkgName, pkgVer) <- case (sym.packageName, sym.packageVersion) of
+        (Just pn, Just pv) -> Right (pn, pv)
+        _ -> -- Either or both are missing, try parsing unit ID
+            case sym.rawUnitId >>= parseUnitId of
+                Just (pn, pv) -> Right (pn, pv)
+                Nothing -> Left $ "Could not parse package info from Unit ID: " ++ fromMaybe "<none>" sym.rawUnitId
+
+    return (modName, pkgName, pkgVer, sym.name)
+
+-- | Parse unit ID to extract package name and version
+-- Example: "tar-0.7.0.0-l-tar-internal-abc..." -> Just ("tar", "0.7.0.0")
+parseUnitId :: String -> Maybe (String, String)
+parseUnitId unitId =
+    case words (map (\c -> if c == '-' then ' ' else c) unitId) of
+        (pkg:ver:_) | all isVersionChar ver -> Just (pkg, ver)
+        _ -> Nothing
+  where
+    isVersionChar c = c `elem` ('.':['0'..'9'])
 
 -- | Main goto definition workflow
 gotoDefinition :: FilePath -> Int -> Int -> GotoAction -> IO ()
@@ -89,10 +113,24 @@ gotoDefinition srcFile line col gotoAction = do
         liftIO $ putErr $ "Finding symbol at " ++ show line ++ ":" ++ show col
         let symbols = reverse $ HR.getSymbolsAtPosition hieFile line col
 
-        -- Step 3: Extract symbol info (pure validation)
+        -- Step 3: Check if local package FIRST (before extracting package info)
+        when (not (null symbols)) $ do
+            let firstSymbol = head symbols
+            case firstSymbol.rawUnitId of
+                Just unitId -> do
+                    -- Check plan.json first
+                    isLocal <- liftIO $ PlanLookup.isLocalPackage unitId
+                    -- Fallback: heuristic check for -inplace suffix (local packages)
+                    let localByHeuristic = "-inplace" `isSuffixOf` unitId
+                    when (isLocal == Just True || localByHeuristic) $ do
+                        liftIO $ putErr $ "Symbol from local package: " ++ unitId
+                        throwError "Local package - skipping"
+                Nothing -> pure ()
+
+        -- Step 4: Extract symbol info (only needed for external packages)
         (modName, pkgName, pkgVer, symName) <- liftEither $ extractSymbolInfo symbols
 
-        -- Step 4: Download package
+        -- Step 5: Download package
         liftIO $ putErr $ "Found symbol: " ++ symName
         liftIO $ putErr $ "  Module: " ++ modName
         liftIO $ putErr $ "  Package: " ++ pkgName ++ "-" ++ pkgVer
@@ -100,10 +138,10 @@ gotoDefinition srcFile line col gotoAction = do
         packageDir <- liftIO $ downloadPackage pkgName pkgVer
         liftIO $ putErr $ "Package cached at: " ++ packageDir
 
-        -- Step 5: Find module file
+        -- Step 6: Find module file
         moduleFile <- findModuleFileE packageDir modName
 
-        -- Step 6: Find definition
+        -- Step 7: Find definition
         liftIO $ putErr $ "\nSearching for definition of: " ++ symName
         mDefLoc <- liftIO $ findDefinition moduleFile symName
         let (defLine, defCol) = case mDefLoc of
@@ -124,8 +162,11 @@ gotoDefinition srcFile line col gotoAction = do
     -- Handle the result
     case result of
         Left err -> do
-            putErr $ "Error: " ++ err
-            exitFailure
+            if "Local package" `isPrefixOf` err
+                then printJsonFailure "Symbol is from a local package"
+                else do
+                    putErr $ "Error: " ++ err
+                    exitFailure
         Right (file, line, col, sym, pkg) ->
             performAction gotoAction file line col sym pkg
 
@@ -161,15 +202,20 @@ performAction PrintJson file line col sym pkg = printJson file line col sym pkg
 
 printJson :: FilePath -> Int -> Int -> String -> String -> IO ()
 printJson moduleFile line col symbolName packageName =
-    BS.putStrLn $ Aeson.encode 
-        (GotoResponse 
-            True 
-            (Just moduleFile) 
-            (Just line) 
-            (Just col) 
-            (Just symbolName)  
+    BS.putStrLn $ Aeson.encode
+        (GotoResponse
+            True
+            (Just moduleFile)
+            (Just line)
+            (Just col)
+            (Just symbolName)
             (Just packageName)
             "Symbol found!")
+
+printJsonFailure :: String -> IO ()
+printJsonFailure message =
+    BS.putStrLn $ Aeson.encode
+        (GotoResponse False Nothing Nothing Nothing Nothing Nothing message)
 
 
 -- | Open a file in VSCode at a specific line and column
