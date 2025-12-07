@@ -12,6 +12,10 @@ import Types (GotoResponse(GotoResponse))
 import Data.Aeson as Aeson ( encode )
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Util (putErr)
+import HieReader.Types ( SymbolInfo )
+import Control.Monad.Except
+    ( ExceptT, runExceptT, liftEither, MonadError(throwError) )
+import Control.Monad.IO.Class (liftIO)
 
 data GotoAction 
     = Print 
@@ -66,77 +70,94 @@ main = do
                         \  hls-lookup goto-print <source-file> <line> <col>  - Find and print definition location\n\
                         \  hls-lookup goto-json <source-file> <line> <col>   - Find and print definition location as json"
 
+extractSymbolInfo :: [SymbolInfo] -> Either String (String, String, String, String)
+extractSymbolInfo [] = Left "No symbol found at the specified position"
+extractSymbolInfo (sym:_) =
+    case (sym.symModule, sym.packageName, sym.packageVersion) of
+        (Just modName, Just pkgName, Just pkgVer) -> Right (modName, pkgName, pkgVer, sym.name)
+        _ -> Left $ "Could not determine package information. Raw Unit ID: " ++ fromMaybe "<none>" sym.rawUnitId
+
 -- | Main goto definition workflow
 gotoDefinition :: FilePath -> Int -> Int -> GotoAction -> IO ()
 gotoDefinition srcFile line col gotoAction = do
-    -- Step 1: Find the .hie file
-    hiePath <- findHieFileOrFail srcFile
-    -- Step 2: Load HIE file and get symbols at position
-    hieFile <- HR.loadHieFile hiePath
-    putErr $ "Finding symbol at " ++ show line ++ ":" ++ show col
-    let symbols = HR.getSymbolsAtPosition hieFile line col
-    case reverse symbols of
-        [] -> do
-            putErr "Error: No symbol found at the specified position"
+    result <- runExceptT $ do
+        -- Step 1: Find the .hie file
+        hiePath <- findHieFileE srcFile
+
+        -- Step 2: Load HIE file and get symbols at position
+        hieFile <- liftIO $ HR.loadHieFile hiePath
+        liftIO $ putErr $ "Finding symbol at " ++ show line ++ ":" ++ show col
+        let symbols = reverse $ HR.getSymbolsAtPosition hieFile line col
+
+        -- Step 3: Extract symbol info (pure validation)
+        (modName, pkgName, pkgVer, symName) <- liftEither $ extractSymbolInfo symbols
+
+        -- Step 4: Download package
+        liftIO $ putErr $ "Found symbol: " ++ symName
+        liftIO $ putErr $ "  Module: " ++ modName
+        liftIO $ putErr $ "  Package: " ++ pkgName ++ "-" ++ pkgVer
+        liftIO $ putErr "\nDownloading package..."
+        packageDir <- liftIO $ downloadPackage pkgName pkgVer
+        liftIO $ putErr $ "Package cached at: " ++ packageDir
+
+        -- Step 5: Find module file
+        moduleFile <- findModuleFileE packageDir modName
+
+        -- Step 6: Find definition
+        liftIO $ putErr $ "\nSearching for definition of: " ++ symName
+        mDefLoc <- liftIO $ findDefinition moduleFile symName
+        let (defLine, defCol) = case mDefLoc of
+                Nothing -> (1, 1)
+                Just defLoc -> (defLoc.line, defLoc.column)
+
+        -- Log result
+        liftIO $ case mDefLoc of
+            Nothing -> do
+                putErr $ "Warning: Could not find definition of " ++ symName ++ " in " ++ moduleFile
+                putErr "Opening file at top..."
+            Just defLoc ->
+                putErr $ "Found definition at line " ++ show defLoc.line ++ ", column " ++ show defLoc.column
+
+        -- Return all the data
+        pure (moduleFile, defLine, defCol, symName, pkgName)
+
+    -- Handle the result
+    case result of
+        Left err -> do
+            putErr $ "Error: " ++ err
             exitFailure
-        (sym:_) -> do
-            putErr $ "Found symbol: " ++ sym.name
-            putErr $ "  Module: " ++ fromMaybe "<unknown>" sym.symModule
-            case (sym.symModule, sym.packageName, sym.packageVersion) of
-                (Just modName, Just pkgName, Just pkgVer) -> do
-                    putErr $ "  Package: " ++ pkgName ++ "-" ++ pkgVer
+        Right (file, line, col, sym, pkg) ->
+            performAction gotoAction file line col sym pkg
 
-                    -- Step 3: Download the package
-                    putErr "\nDownloading package..."
-                    packageDir <- downloadPackage pkgName pkgVer
-                    putErr $ "Package cached at: " ++ packageDir
-
-                    continueWithPackage packageDir modName sym.name pkgName gotoAction
-                _ -> do
-                    putErr "Error: Could not determine package information"
-                    putErr $ "  Raw Unit ID: " ++ fromMaybe "<none>" sym.rawUnitId
-                    exitFailure
-    where
-        findHieFileOrFail srcFile = do
-            putErr $ "Looking for HIE file for: " ++ srcFile
-            mHiePath <- HR.findHieFile srcFile
-            case mHiePath of
-                Nothing -> do
-                    putErr $ "Error: No .hie file found for " ++ srcFile
-                    putErr "Hint: Make sure the project is compiled with -fwrite-ide-info"
-                    exitFailure
-                Just hiePath -> do
-                    putErr $ "Found HIE file: " ++ hiePath
-                    pure hiePath
-
--- | Continue the goto workflow with the downloaded package
-continueWithPackage :: FilePath -> String -> String -> String -> GotoAction -> IO ()
-continueWithPackage packageDir moduleName symbolName packageName gotoAction = do
-    -- Step 4: Find the module file
-    putErr $ "\nLooking for module: " ++ moduleName
-    mModuleFile <- findModuleFile packageDir moduleName
-    case mModuleFile of
+-- | Find HIE file or fail with error
+findHieFileE :: FilePath -> ExceptT String IO FilePath
+findHieFileE srcFile = do
+    liftIO $ putErr $ "Looking for HIE file for: " ++ srcFile
+    mHiePath <- liftIO $ HR.findHieFile srcFile
+    case mHiePath of
         Nothing -> do
-            putErr $ "Error: Could not find module file for " ++ moduleName
-            exitFailure
-        Just moduleFile -> do
-            putErr $ "Found module at: " ++ moduleFile
+            liftIO $ putErr "Hint: Make sure the project is compiled with -fwrite-ide-info"
+            throwError $ "No .hie file found for " ++ srcFile
+        Just hiePath -> do
+            liftIO $ putErr $ "Found HIE file: " ++ hiePath
+            pure hiePath
 
-            -- Step 5: Find the definition in the file
-            putErr $ "\nSearching for definition of: " ++ symbolName
-            mDefLoc <- findDefinition moduleFile symbolName
-            (line, col) <- case mDefLoc of
-                                Nothing -> do
-                                    putErr $ "Warning: Could not find definition of " ++ symbolName ++ " in " ++ moduleFile
-                                    putErr "Opening file at top..."
-                                    pure (1,1)
-                                Just defLoc -> do
-                                    putErr $ "Found definition at line " ++ show defLoc.line ++ ", column " ++ show defLoc.column
-                                    pure (defLoc.line, defLoc.column)
-            case gotoAction of
-                OpenFile -> openInVSCode moduleFile line col
-                Print -> printLocation moduleFile line col
-                PrintJson -> printJson moduleFile line col symbolName packageName
+-- | Find module file or fail with error
+findModuleFileE :: FilePath -> String -> ExceptT String IO FilePath
+findModuleFileE packageDir moduleName = do
+    liftIO $ putErr $ "\nLooking for module: " ++ moduleName
+    mFile <- liftIO $ findModuleFile packageDir moduleName
+    case mFile of
+        Nothing -> throwError $ "Could not find module file for " ++ moduleName
+        Just file -> do
+            liftIO $ putErr $ "Found module at: " ++ file
+            pure file
+
+-- | Perform the action based on GotoAction
+performAction :: GotoAction -> FilePath -> Int -> Int -> String -> String -> IO ()
+performAction OpenFile file line col _ _ = openInVSCode file line col
+performAction Print file line col _ _ = printLocation file line col
+performAction PrintJson file line col sym pkg = printJson file line col sym pkg
 
 printJson :: FilePath -> Int -> Int -> String -> String -> IO ()
 printJson moduleFile line col symbolName packageName =

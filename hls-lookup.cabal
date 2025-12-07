@@ -90,6 +90,7 @@ executable hls-lookup
                     , process
                     , aeson
                     , bytestring
+                    , mtl
     hs-source-dirs:   exe
     default-language: GHC2024
     default-extensions: OverloadedRecordDot
