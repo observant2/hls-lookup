@@ -6,6 +6,7 @@ where
 import Data.Char (isDigit)
 import Data.List qualified as L (break, reverse, span)
 import Util (splitOn)
+import Data.List (intercalate)
 
 -- | Parse package name and version from UnitId string
 --  Format: "pkgname-1.2.3.4" or "pkgname-1.2.3.4-hash" or "pkgname-1.2.3.4:libname+hash"
@@ -51,18 +52,12 @@ extractNameVersion parts =
       (versionParts, nameParts) = L.span isVersionPart partsAfterHash
    in case (nameParts, versionParts) of
         ([], _) -> (Nothing, Nothing) -- No package name
-        (_, []) -> (Just $ concatWith "-" (L.reverse nameParts), Nothing) -- No version
+        (_, []) -> (Just $ intercalate "-" (L.reverse nameParts), Nothing) -- No version
         _ ->
-          ( Just $ concatWith "-" (L.reverse nameParts),
-            Just $ concatWith "." (L.reverse versionParts)
+          ( Just $ intercalate "-" (L.reverse nameParts),
+            Just $ intercalate "." (L.reverse versionParts)
           )
 
 -- | Check if a string part looks like a version component (digits and dots)
 isVersionPart :: String -> Bool
 isVersionPart s = not (null s) && all (\c -> isDigit c || c == '.') s && any isDigit s
-
--- | Concatenate with specified separator
-concatWith :: String -> [String] -> String
-concatWith _ [] = ""
-concatWith _ [x] = x
-concatWith sep (x : xs) = x ++ sep ++ concatWith sep xs

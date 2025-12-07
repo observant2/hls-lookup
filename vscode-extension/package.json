@@ -3,10 +3,10 @@
   "displayName": "HLS Lookup",
   "description": "Go to definition for Haskell symbols in external Hackage packages",
   "version": "0.0.1",
-  "publisher": "your-publisher-name",
+  "publisher": "observant2",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/hls-lookup"
+    "url": "https://github.com/observant2/hls-lookup"
   },
   "engines": {
     "vscode": "^1.106.1"
@@ -69,6 +69,7 @@
     "npm-run-all": "^4.1.5",
     "typescript": "^5.9.3",
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1"
   }
 }

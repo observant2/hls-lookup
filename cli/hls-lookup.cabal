@@ -29,10 +29,10 @@ version:            0.1.0.0
 -- description:
 
 -- The license under which the package is released.
-license:            NONE
+license:            MIT-0
 
 -- The package author(s).
--- author:
+author: observant2
 
 -- An email address to which users can send suggestions, bug reports, and patches.
 -- maintainer:
