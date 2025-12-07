@@ -1,9 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module HieReader where
 
 import Data.Char
-import Data.List (break, reverse, span)
+import Data.List qualified as L (break, reverse, span)
 import Data.Map qualified as Map
 import GHC.Iface.Ext.Binary (HieFileResult (..), readHieFile)
 import GHC.Iface.Ext.Types
@@ -16,14 +14,25 @@ import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import System.Directory
 import System.FilePath
 
--- Load a .hie file
+-- | name, symModule, PackageVersion of a hackage package
+data SymbolInfo = SymbolInfo
+  { name :: String,
+    symModule :: Maybe String,
+    packageName :: Maybe String,
+    packageVersion :: Maybe String,
+    rawUnitId :: Maybe String, -- Debug: raw unit ID string
+    span :: RealSrcSpan
+  }
+  deriving (Show)
+
+-- | Load a .hie file from FilePath
 loadHieFile :: FilePath -> IO HieFile
 loadHieFile hiePath = do
   nameCache <- initNameCache 'z' []
   result <- readHieFile nameCache hiePath
   return result.hie_file_result
 
--- Find .hie file for a source file
+-- | Find .hie file for a source file
 findHieFile :: FilePath -> IO (Maybe FilePath)
 findHieFile srcFile = do
   let baseName = takeBaseName srcFile
@@ -31,7 +40,7 @@ findHieFile srcFile = do
   exists <- doesFileExist hiePath
   return $ if exists then Just hiePath else Nothing
 
--- Check if a position is within a span
+-- | Check if a position is within a span (span line col)
 containsPosition :: RealSrcSpan -> Int -> Int -> Bool
 containsPosition span line col =
   let start = realSrcSpanStart span
@@ -43,39 +52,28 @@ containsPosition span line col =
    in (startLine < line || (startLine == line && startCol <= col))
         && (endLine > line || (endLine == line && endCol >= col))
 
--- Extract identifier information with full Name
-data SymbolInfo = SymbolInfo
-  { symName :: String,
-    symModule :: Maybe String,
-    symPackageName :: Maybe String,
-    symPackageVersion :: Maybe String,
-    symRawUnitId :: Maybe String, -- Debug: raw unit ID string
-    symSpan :: RealSrcSpan
-  }
-  deriving (Show)
-
--- Parse package name and version from UnitId string
--- Format: "pkgname-1.2.3.4" or "pkgname-1.2.3.4-hash" or "pkgname-1.2.3.4:libname+hash"
+-- | Parse package name and version from UnitId string
+--  Format: "pkgname-1.2.3.4" or "pkgname-1.2.3.4-hash" or "pkgname-1.2.3.4:libname+hash"
 parseUnitId :: String -> (Maybe String, Maybe String)
 parseUnitId unitStr =
   let -- Remove any ":libname+hash" suffix
-      baseStr = case Data.List.break (== ':') unitStr of
+      baseStr = case L.break (== ':') unitStr of
         (base, _) -> base
       -- Split on '-' and work backwards to find version
       parts = splitOn '-' baseStr
       -- Remove hash from end if present (long hex string, typically 64 chars)
-      partsNoHash = case Data.List.reverse parts of
+      partsNoHash = case L.reverse parts of
         [] -> []
         (lastPart : rest) ->
           if isHash lastPart
-            then Data.List.reverse rest
-            else Data.List.reverse parts
-   in extractNameVersion (Data.List.reverse partsNoHash)
+            then L.reverse rest
+            else L.reverse parts
+   in extractNameVersion (L.reverse partsNoHash)
   where
     -- Split string on a character
     splitOn :: Char -> String -> [String]
     splitOn _ "" = []
-    splitOn c s = case Data.List.break (== c) s of
+    splitOn c s = case L.break (== c) s of
       (chunk, "") -> [chunk]
       (chunk, _ : rest) -> chunk : splitOn c rest
 
@@ -89,13 +87,13 @@ parseUnitId unitStr =
     extractNameVersion :: [String] -> (Maybe String, Maybe String)
     extractNameVersion [] = (Nothing, Nothing)
     extractNameVersion parts =
-      let (versionParts, nameParts) = Data.List.span isVersionPart parts
+      let (versionParts, nameParts) = L.span isVersionPart parts
        in case (nameParts, versionParts) of
             ([], _) -> (Nothing, Nothing) -- No package name
-            (_, []) -> (Just $ concatWith "-" (Data.List.reverse nameParts), Nothing) -- No version
+            (_, []) -> (Just $ concatWith "-" (L.reverse nameParts), Nothing) -- No version
             _ ->
-              ( Just $ concatWith "-" (Data.List.reverse nameParts),
-                Just $ concatWith "." (Data.List.reverse versionParts)
+              ( Just $ concatWith "-" (L.reverse nameParts),
+                Just $ concatWith "." (L.reverse versionParts)
               )
 
     -- Check if a string part looks like a version component (digits and dots)
@@ -108,28 +106,28 @@ parseUnitId unitStr =
     concatWith _ [x] = x
     concatWith sep (x : xs) = x ++ sep ++ concatWith sep xs
 
--- Convert Name to SymbolInfo
+-- | Convert Name to SymbolInfo
 nameToSymbolInfo :: RealSrcSpan -> Name -> SymbolInfo
 nameToSymbolInfo span name =
   let modMaybe = nameModule_maybe name
       (pkgName, pkgVersion, rawUnit) = case modMaybe of
         Nothing -> (Nothing, Nothing, Nothing)
         Just mod ->
-          let unit = moduleUnit mod
+          let unit = mod.moduleUnit
               unitId = toUnitId unit
-              unitStr = unitIdString unitId
+              unitStr = unitIdString unitId -- TODO: Check here if it is ghc-, then no need to jump to source
               (name', ver') = parseUnitId unitStr
            in (name', ver', Just unitStr)
    in SymbolInfo
-        { symName = showSDocUnsafe (ppr $ nameOccName name),
-          symModule = fmap moduleString modMaybe,
-          symPackageName = pkgName,
-          symPackageVersion = pkgVersion,
-          symRawUnitId = rawUnit,
-          symSpan = span
+        { name = showSDocUnsafe (ppr $ nameOccName name),
+          symModule = moduleString <$> modMaybe,
+          packageName = pkgName,
+          packageVersion = pkgVersion,
+          rawUnitId = rawUnit,
+          span = span
         }
 
--- Traverse AST and collect all symbols at position
+-- | Traverse AST and collect all symbols at position
 findSymbolsInAST :: Int -> Int -> HieAST a -> [SymbolInfo]
 findSymbolsInAST line col (Node info span children) =
   let currentSymbols =
@@ -139,7 +137,7 @@ findSymbolsInAST line col (Node info span children) =
       childSymbols = concatMap (findSymbolsInAST line col) children
    in currentSymbols ++ childSymbols
 
--- Extract symbols from NodeInfo
+-- | Extract symbols from NodeInfo
 extractSymbols :: RealSrcSpan -> SourcedNodeInfo a -> [SymbolInfo]
 extractSymbols span (SourcedNodeInfo nodeInfos) =
   concatMap (extractFromNodeInfo span) $ Map.elems nodeInfos
@@ -155,7 +153,7 @@ getSymbolsAtPosition hieFile line col =
       allSymbols = concatMap (findSymbolsInAST line col) $ Map.elems asts
    in allSymbols
 
--- Pretty print a Module
+-- | Pretty print a Module
 moduleString :: Module -> String
 moduleString = moduleNameString . moduleName
 
@@ -167,7 +165,7 @@ inspectHieFile hiePath = do
   putStrLn $ "Source file: " ++ hieFile.hie_hs_file
   putStrLn $ "AST entries: " ++ show (Map.size $ getAsts hieFile.hie_asts)
 
--- Test function to find symbols at a position
+-- | Test function to find symbols at a position
 findSymbolAt :: FilePath -> Int -> Int -> IO ()
 findSymbolAt hiePath line col = do
   hieFile <- loadHieFile hiePath
@@ -176,13 +174,16 @@ findSymbolAt hiePath line col = do
   mapM_ printSymbol symbols
   where
     printSymbol sym = do
-      putStrLn $ "  Name: " ++ sym.symName
+      putStrLn $ "  Name: " ++ sym.name
       putStrLn $ "  Module: " ++ show sym.symModule
-      putStrLn $ "  Raw Unit ID: " ++ show sym.symRawUnitId
-      putStrLn $ "  Package Name: " ++ show sym.symPackageName
-      putStrLn $ "  Package Version: " ++ show sym.symPackageVersion
+      putStrLn $ "  Raw Unit ID: " ++ show sym.rawUnitId
+      putStrLn $ "  Package Name: " ++ show sym.packageName
+      putStrLn $ "  Package Version: " ++ show sym.packageVersion
+
       -- Debug: show what the combined parsing resulted in
-      case (sym.symPackageName, sym.symPackageVersion) of
-        (Just name, Just ver) -> putStrLn $ "  -> Would download: " ++ name ++ " version " ++ ver
-        _ -> return ()
+      case (sym.packageName, sym.packageVersion) of
+        (Just name, Just ver) ->
+          putStrLn $ "  -> Would download: " ++ name ++ " version " ++ ver
+        _ ->
+          pure ()
       putStrLn ""
