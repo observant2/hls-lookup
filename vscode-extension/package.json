@@ -39,7 +39,7 @@
         },
         "hlsLookup.showProgress": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Show progress notifications when downloading packages"
         }
       }

@@ -78,6 +78,8 @@ export class HlsLookupDefinitionProvider implements vscode.DefinitionProvider {
         return new vscode.Location(uri, pos);
       }
 
+      vscode.window.showWarningMessage(result.message);
+
       return undefined;
     } catch (error) {
       // Silently fail - this allows HLS to handle the definition if hls-lookup fails

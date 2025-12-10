@@ -14,7 +14,7 @@ import Util (putErr)
 import Control.Monad.Except
     ( ExceptT, runExceptT, MonadError(throwError) )
 import Control.Monad.IO.Class (liftIO)
-import Data.List (isPrefixOf)
+import Control.Monad (when)
 import qualified PlanLookup
 
 data GotoAction 
@@ -92,6 +92,10 @@ gotoDefinition srcFile line col gotoAction = do
         liftIO $ putErr $ "Finding symbol at " ++ show line ++ ":" ++ show col
         let symbols = reverse $ HR.getSymbolsAtPosition hieFile line col
 
+        -- Check if we found any symbols
+        when (null symbols) $
+            throwError "No symbol found at this position"
+
         -- Step 3: Get package info from plan.json (or fall back to HIE file)
         let firstSymbol = head symbols
             symName = firstSymbol.name
@@ -151,11 +155,11 @@ gotoDefinition srcFile line col gotoAction = do
 
     -- Handle the result
     case result of
-        Left err -> do
-            if "Not an external Hackage package" `isPrefixOf` err
-                then printJsonFailure "Symbol is not from an external Hackage package"
-                else do
-                    putErr $ "Error: " ++ err
+        Left err ->
+            case gotoAction of
+                PrintJson -> printJsonFailure err  -- Exit with code 0 in JSON mode
+                _ -> do
+                    putErr err
                     exitFailure
         Right (file, line, col, sym, pkg) ->
             performAction gotoAction file line col sym pkg

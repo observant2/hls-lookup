@@ -51,4 +51,5 @@ Install the vs extension.
 1. In vscode right click on the .vsix file and choose `Install Extension VSIX`
 
 # Known issues
+- After jumping to third party references it seems that HLS starts a second time (for the third party dependency) and then shows two tooltips.
 - From time to time I observe that I need to restart hls, before I'm correctly redirected to a definition. The two should be independent, so I don't know yet why this happens
