@@ -50,6 +50,8 @@ Install the vs extension.
 1. Run `npx vsce package`
 1. In vscode right click on the .vsix file and choose `Install Extension VSIX`
 
+If you don't want to install npm/node you can download the vsix file from the releases.
+
 # Known issues
 - After jumping to third party references it seems that HLS starts a second time (for the third party dependency) and then shows two tooltips.
 - From time to time I observe that I need to restart hls, before I'm correctly redirected to a definition. The two should be independent, so I don't know yet why this happens
