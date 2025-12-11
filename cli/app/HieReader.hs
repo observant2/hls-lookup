@@ -28,8 +28,9 @@ import GHC.Unit.Types (Module)
 import HieReader.Parser (parseUnitId)
 import HieReader.SymbolLookup (containsPosition, getSymbolsAtPosition)
 import HieReader.Types (SymbolInfo (..))
-import System.Directory (doesFileExist)
-import System.FilePath (takeBaseName, (<.>), (</>))
+import System.Directory (doesFileExist, doesDirectoryExist, listDirectory, canonicalizePath)
+import System.FilePath (takeExtension, (</>))
+import Control.Monad (filterM)
 
 -- | Load a .hie file from FilePath
 loadHieFile :: FilePath -> IO HieFile
@@ -38,13 +39,48 @@ loadHieFile hiePath = do
   result <- readHieFile nameCache hiePath
   return result.hie_file_result
 
--- | Find .hie file for a source file
+hieFolder :: String
+hieFolder = ".hie"
+
+-- | Find .hie file for a source file by searching recursively in .hie/ directory
+-- Verifies the match by checking the hie_hs_file field inside the HIE file
 findHieFile :: FilePath -> IO (Maybe FilePath)
 findHieFile srcFile = do
-  let baseName = takeBaseName srcFile
-  let hiePath = ".hie" </> baseName <.> "hie"
-  exists <- doesFileExist hiePath
-  return $ if exists then Just hiePath else Nothing
+  canonicalSrc <- canonicalizePath srcFile
+
+  hieExists <- doesDirectoryExist hieFolder
+  if not hieExists
+    then return Nothing
+    else do
+      hieFiles <- findHieFilesRecursive hieFolder
+
+      findMatchingHie canonicalSrc hieFiles
+  where
+    findHieFilesRecursive :: FilePath -> IO [FilePath]
+    findHieFilesRecursive dir = do
+      entries <- listDirectory dir
+      let fullPaths = map (dir </>) entries
+
+      dirs <- filterM doesDirectoryExist fullPaths
+      files <- filterM doesFileExist fullPaths
+
+      let hieFiles = filter (\f -> takeExtension f == ".hie") files
+
+      -- Recursively search subdirectories
+      subHieFiles <- concat <$> mapM findHieFilesRecursive dirs
+
+      return (hieFiles ++ subHieFiles)
+
+    findMatchingHie :: FilePath -> [FilePath] -> IO (Maybe FilePath)
+    findMatchingHie _ [] = return Nothing
+    findMatchingHie canonical (hiePath:rest) = do
+      -- Load the HIE file and check if it matches
+      hieFile <- loadHieFile hiePath
+      canonicalHieSrc <- canonicalizePath hieFile.hie_hs_file
+
+      if canonicalHieSrc == canonical
+        then return (Just hiePath)
+        else findMatchingHie canonical rest
 
 -- | Pretty print a Module
 moduleString :: Module -> String
