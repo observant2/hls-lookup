@@ -1,4 +1,4 @@
-module HieReader.SymbolLookup
+module SymbolLookup
   ( getSymbolsAtPosition,
     containsPosition,
   )
@@ -11,8 +11,7 @@ import GHC.Types.SrcLoc (RealSrcSpan, realSrcSpanEnd, realSrcSpanStart, srcLocCo
 import GHC.Unit.Module (moduleName, moduleNameString, moduleUnit)
 import GHC.Unit.Types (toUnitId, unitIdString)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
-import HieReader.Parser (parseUnitId)
-import HieReader.Types (SymbolInfo (..))
+import LookupTypes (SymbolInfo (..))
 
 -- | Check if a position is within a span (span line col)
 containsPosition :: RealSrcSpan -> Int -> Int -> Bool
@@ -30,19 +29,16 @@ containsPosition span line col =
 nameToSymbolInfo :: RealSrcSpan -> Name -> SymbolInfo
 nameToSymbolInfo span name =
   let modMaybe = nameModule_maybe name
-      (pkgName, pkgVersion, rawUnit) = case modMaybe of
-        Nothing -> (Nothing, Nothing, Nothing)
+      rawUnit = case modMaybe of
+        Nothing -> Nothing
         Just mod ->
           let unit = mod.moduleUnit
               unitId = toUnitId unit
-              unitStr = unitIdString unitId -- TODO: Check here if it is ghc-, then no need to jump to source
-              (name', ver') = parseUnitId unitStr
-           in (name', ver', Just unitStr)
+              unitStr = unitIdString unitId
+           in Just unitStr
    in SymbolInfo
         { name = showSDocUnsafe (ppr $ nameOccName name),
           symModule = moduleString <$> modMaybe,
-          packageName = pkgName,
-          packageVersion = pkgVersion,
           rawUnitId = rawUnit,
           span = span
         }

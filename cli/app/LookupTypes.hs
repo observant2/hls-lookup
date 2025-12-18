@@ -1,4 +1,4 @@
-module HieReader.Types where
+module LookupTypes(SymbolInfo(..)) where
 
 import GHC.Types.SrcLoc (RealSrcSpan)
 
@@ -7,9 +7,7 @@ import GHC.Types.SrcLoc (RealSrcSpan)
 data SymbolInfo = SymbolInfo
   { name :: String,
     symModule :: Maybe String,
-    packageName :: Maybe String,
-    packageVersion :: Maybe String,
-    rawUnitId :: Maybe String, -- Debug: raw unit ID string
+    rawUnitId :: Maybe String,
     span :: RealSrcSpan
   }
   deriving (Show)

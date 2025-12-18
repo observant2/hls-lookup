@@ -15,7 +15,6 @@ export async function executeHlsLookup(
   file: string,
   line: number,
   column: number,
-  progress?: vscode.Progress<{ message?: string; increment?: number }>,
   token?: vscode.CancellationToken
 ): Promise<GotoResponse> {
 
@@ -41,31 +40,6 @@ export async function executeHlsLookup(
 
     proc.stdout.on('data', (data) => {
       stdout += data.toString();
-    });
-
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-
-      // Parse progress events from stderr
-      // The CLI outputs progress as JSON on stderr
-      try {
-        const lines = stderr.split('\n').filter(l => l.trim());
-        for (const line of lines) {
-          try {
-            const progressEvent = JSON.parse(line);
-            if (progressEvent.stage && progressEvent.message && progress) {
-              progress.report({
-                message: progressEvent.message,
-                increment: progressEvent.percentage
-              });
-            }
-          } catch {
-            // Not JSON, ignore (it's regular log output)
-          }
-        }
-      } catch {
-        // Ignore parsing errors
-      }
     });
 
     proc.on('close', (code) => {

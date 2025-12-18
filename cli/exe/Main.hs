@@ -7,7 +7,6 @@ import ModuleLookup (findModuleFile)
 import DefinitionFinder (findDefinition, DefinitionLocation(..))
 import System.Process (callCommand)
 import System.Exit (exitFailure)
-import Types (GotoResponse(GotoResponse))
 import Data.Aeson as Aeson ( encode )
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Util (putErr)
@@ -16,10 +15,13 @@ import Control.Monad.Except
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (when)
 import qualified PlanLookup
+import SymbolLookup (getSymbolsAtPosition)
+import Types ( GotoResponse(GotoResponse) ) 
+import LookupTypes (SymbolInfo(..))
 
-data GotoAction 
-    = Print 
-    | PrintJson 
+data GotoAction
+    = Print
+    | PrintJson
     | OpenFile
 
 
@@ -90,7 +92,7 @@ gotoDefinition srcFile line col gotoAction = do
         -- Step 2: Load HIE file and get symbols at position
         hieFile <- liftIO $ HR.loadHieFile hiePath
         liftIO $ putErr $ "Finding symbol at " ++ show line ++ ":" ++ show col
-        let symbols = reverse $ HR.getSymbolsAtPosition hieFile line col
+        let symbols = reverse $ getSymbolsAtPosition hieFile line col
 
         -- Check if we found any symbols
         when (null symbols) $
@@ -157,7 +159,7 @@ gotoDefinition srcFile line col gotoAction = do
     case result of
         Left err ->
             case gotoAction of
-                PrintJson -> printJsonFailure err  -- Exit with code 0 in JSON mode
+                PrintJson -> printJsonFailure err
                 _ -> do
                     putErr err
                     exitFailure

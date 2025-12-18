@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { executeHlsLookup, GotoResponse } from './hlsLookup';
+import { executeHlsLookup } from './hlsLookup';
 
 export class HlsLookupDefinitionProvider implements vscode.DefinitionProvider {
   async provideDefinition(
@@ -35,37 +35,11 @@ export class HlsLookupDefinitionProvider implements vscode.DefinitionProvider {
       return undefined;
     }
 
-    const showProgress = config.get<boolean>('showProgress', true);
-
-    if (showProgress) {
-      return await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: "Searching in Hackage packages...",
-          cancellable: true
-        },
-        async (progress, progressToken) => {
-          return await this.callHlsLookup(document, position, progress, progressToken);
-        }
-      );
-    } else {
-      // Call without progress notification
-      return await this.callHlsLookup(document, position, undefined, token);
-    }
-  }
-
-  private async callHlsLookup(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-    progress?: vscode.Progress<{ message?: string; increment?: number }>,
-    token?: vscode.CancellationToken
-  ): Promise<vscode.Location | undefined> {
     try {
       const result = await executeHlsLookup(
         document.fileName,
         position.line + 1,  // Convert to 1-indexed
         position.character + 1,
-        progress,
         token
       );
 

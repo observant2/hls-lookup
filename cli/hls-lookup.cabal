@@ -57,9 +57,8 @@ common warnings
 library
     import:           warnings
     exposed-modules:  HieReader
-                    , HieReader.Types
-                    , HieReader.Parser
-                    , HieReader.SymbolLookup
+                    , LookupTypes
+                    , SymbolLookup
                     , PackageDownload
                     , ModuleLookup
                     , DefinitionFinder
@@ -106,8 +105,7 @@ test-suite hls-lookup-tests
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   test
-    other-modules:    Test.HieReader.Parser
-                    , Test.ModuleLookup
+    other-modules:    Test.ModuleLookup
                     , Test.DefinitionFinder
     build-depends:    base ^>=4.21.0.0
                     , hls-lookup
