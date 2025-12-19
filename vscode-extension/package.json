@@ -2,7 +2,7 @@
   "name": "hls-lookup-vscode",
   "displayName": "HLS Lookup",
   "description": "Go to definition for Haskell symbols in external Hackage packages",
-  "version": "0.0.1",
+  "version": "0.1.1",
   "publisher": "observant2",
   "repository": {
     "type": "git",
