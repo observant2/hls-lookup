@@ -11,9 +11,9 @@ import GHC.Iface.Ext.Binary (HieFileResult (..), readHieFile)
 import GHC.Iface.Ext.Types (HieFile (hie_asts, hie_hs_file, hie_module), getAsts)
 import GHC.Types.Name.Cache (initNameCache)
 import GHC.Unit.Module (moduleName, moduleNameString)
-import System.Directory (doesFileExist, doesDirectoryExist, listDirectory, canonicalizePath)
-import System.FilePath (takeExtension, takeDirectory, (</>), (<.>), splitPath, joinPath)
-import Control.Monad (filterM, when)
+import System.Directory (doesFileExist, doesDirectoryExist, listDirectory, makeAbsolute, canonicalizePath)
+import System.FilePath (takeExtension, takeDirectory, (</>))
+import Control.Monad (filterM)
 import Control.Exception (catch, SomeException)
 import SymbolLookup
 import LookupTypes
@@ -70,7 +70,7 @@ findHieFile srcFile = do
         else do
           hieFiles <- findHieFilesRecursive hieFolder
           putStrLn $ "DEBUG: Found " ++ show (length hieFiles) ++ " HIE files"
-          findMatchingHie canonicalSrc hieFiles
+          findMatchingHie packageRoot canonicalSrc hieFiles
   where
     findHieFilesRecursive :: FilePath -> IO [FilePath]
     findHieFilesRecursive dir = do
@@ -87,24 +87,16 @@ findHieFile srcFile = do
 
       return (hieFiles ++ subHieFiles)
 
-    findMatchingHie :: FilePath -> [FilePath] -> IO (Maybe FilePath)
-    findMatchingHie _ [] = do
-      putStrLn "DEBUG: No matching HIE file found after checking all files"
-      return Nothing
-    findMatchingHie canonical (hiePath:rest) = do
+    findMatchingHie :: FilePath -> FilePath -> [FilePath] -> IO (Maybe FilePath)
+    findMatchingHie _ _ [] = pure Nothing
+    findMatchingHie packageRoot canonical (hiePath:rest) = do
       -- Load the HIE file and check if it matches
       hieFile <- loadHieFile hiePath
-      canonicalHieSrc <- canonicalizePath hieFile.hie_hs_file
-
-      -- Debug: show first few comparisons
-      when (length rest > 155) $
-        putStrLn $ "DEBUG: Comparing '" ++ canonicalHieSrc ++ "' with '" ++ canonical ++ "'"
+      let canonicalHieSrc = packageRoot </> hieFile.hie_hs_file
 
       if canonicalHieSrc == canonical
-        then do
-          putStrLn $ "DEBUG: Match found! " ++ hiePath
-          return (Just hiePath)
-        else findMatchingHie canonical rest
+        then pure (Just hiePath)
+        else findMatchingHie packageRoot canonical rest
 
 -- | Test function to inspect what's in a .hie file
 inspectHieFile :: FilePath -> IO ()

@@ -173,8 +173,8 @@ findHieFileE srcFile = do
     mHiePath <- liftIO $ HR.findHieFile srcFile
     case mHiePath of
         Nothing -> do
-            liftIO $ putErr "Hint: Make sure the project is compiled with -fwrite-ide-info"
-            throwError $ "No .hie file found for " ++ srcFile
+            throwError $ "No .hie file found for " ++ srcFile 
+                ++ "\nHint: Make sure the project is compiled with -fwrite-ide-info"
         Just hiePath -> do
             liftIO $ putErr $ "Found HIE file: " ++ hiePath
             pure hiePath
