@@ -7,6 +7,7 @@ where
 import Data.Map qualified as Map
 import GHC.Iface.Ext.Types
 import GHC.Types.Name (Name, nameModule_maybe, nameOccName)
+import qualified Data.Text as T
 import GHC.Types.SrcLoc (RealSrcSpan, realSrcSpanEnd, realSrcSpanStart, srcLocCol, srcLocLine)
 import GHC.Unit.Module (moduleName, moduleNameString, moduleUnit)
 import GHC.Unit.Types (toUnitId, unitIdString)
@@ -37,9 +38,9 @@ nameToSymbolInfo span name =
               unitStr = unitIdString unitId
            in Just unitStr
    in SymbolInfo
-        { name = showSDocUnsafe (ppr $ nameOccName name),
-          symModule = moduleString <$> modMaybe,
-          rawUnitId = rawUnit,
+        { name = T.pack $ showSDocUnsafe (ppr $ nameOccName name),
+          symModule = T.pack . moduleString <$> modMaybe,
+          rawUnitId = T.pack <$> rawUnit,
           span = span
         }
   where

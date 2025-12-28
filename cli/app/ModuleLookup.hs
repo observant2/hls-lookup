@@ -5,19 +5,20 @@ module ModuleLookup
 where
 
 import Data.List (find, intercalate)
+import Data.Text (Text)
+import qualified Data.Text as T
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
-import Util (splitOn)
 
 -- | Convert a module name to a relative file path
 -- Examples:
 --   "Network.HTTP.Simple" → "Network/HTTP/Simple.hs"
 --   "Data.Map" → "Data/Map.hs"
-moduleNameToPath :: String -> FilePath
+moduleNameToPath :: Text -> FilePath
 moduleNameToPath moduleName =
-  let parts = splitOn '.' moduleName
-      pathParts = intercalate "/" parts
-   in pathParts ++ ".hs"
+  let parts = T.splitOn "." moduleName
+      pathParts = T.intercalate "/" parts
+   in T.unpack (pathParts <> ".hs")
 
 -- | Common source directory patterns to try
 commonSourceDirs :: [FilePath]
@@ -33,7 +34,7 @@ commonSourceDirs =
 -- | Find a module file within a package directory
 -- Tries common source directory patterns
 -- Returns Nothing if the file is not found
-findModuleFile :: FilePath -> String -> IO (Maybe FilePath)
+findModuleFile :: FilePath -> Text -> IO (Maybe FilePath)
 findModuleFile packageDir moduleName = do
   let relativePath = moduleNameToPath moduleName
   let candidates = map (\dir -> packageDir </> dir </> relativePath) commonSourceDirs

@@ -12,6 +12,7 @@ import GHC.Iface.Ext.Types (HieFile (hie_asts, hie_hs_file, hie_module), getAsts
 import GHC.Types.Name.Cache (initNameCache)
 import GHC.Unit.Module (moduleName, moduleNameString)
 import System.Directory (doesFileExist, doesDirectoryExist, listDirectory, makeAbsolute, canonicalizePath)
+import qualified Data.Text as T
 import System.FilePath (takeExtension, takeDirectory, (</>))
 import Control.Monad (filterM)
 import Control.Exception (catch, SomeException)
@@ -53,23 +54,18 @@ findPackageRoot dir = do
 findHieFile :: FilePath -> IO (Maybe FilePath)
 findHieFile srcFile = do
   canonicalSrc <- canonicalizePath srcFile
-  putStrLn $ "DEBUG: Canonical source: " ++ canonicalSrc
 
   -- Find the package root (directory containing .cabal file)
   mPackageRoot <- findPackageRoot (takeDirectory canonicalSrc)
-  putStrLn $ "DEBUG: Package root: " ++ show mPackageRoot
   case mPackageRoot of
     Nothing -> return Nothing  -- No .cabal file found
     Just packageRoot -> do
       let hieFolder = packageRoot </> ".hie"
-      putStrLn $ "DEBUG: HIE folder: " ++ hieFolder
       hieExists <- doesDirectoryExist hieFolder
-      putStrLn $ "DEBUG: HIE folder exists: " ++ show hieExists
       if not hieExists
         then return Nothing
         else do
           hieFiles <- findHieFilesRecursive hieFolder
-          putStrLn $ "DEBUG: Found " ++ show (length hieFiles) ++ " HIE files"
           findMatchingHie packageRoot canonicalSrc hieFiles
   where
     findHieFilesRecursive :: FilePath -> IO [FilePath]
@@ -115,7 +111,7 @@ findSymbolAt hiePath line col = do
   mapM_ printSymbol symbols
   where
     printSymbol sym = do
-      putStrLn $ "  Name: " ++ sym.name
-      putStrLn $ "  Module: " ++ show sym.symModule
-      putStrLn $ "  Raw Unit ID: " ++ show sym.rawUnitId
+      putStrLn $ "  Name: " <> T.unpack sym.name
+      putStrLn $ "  Module: " <> show sym.symModule
+      putStrLn $ "  Raw Unit ID: " <> show sym.rawUnitId
       putStrLn ""

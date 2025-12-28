@@ -1,6 +1,8 @@
 module Util (splitOn, putErr) where
 
 import qualified Data.List as L
+import Data.Text (Text)
+import qualified Data.Text as T
 import System.IO ( hPutStrLn, stderr )
 
 
@@ -11,5 +13,5 @@ splitOn c s = case L.break (== c) s of
   (chunk, "") -> [chunk]
   (chunk, _ : rest) -> chunk : splitOn c rest
 
-putErr :: String -> IO ()
-putErr = hPutStrLn stderr
+putErr :: Text -> IO ()
+putErr t = hPutStrLn stderr (T.unpack t)

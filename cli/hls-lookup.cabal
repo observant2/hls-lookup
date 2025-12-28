@@ -76,6 +76,7 @@ library
                     , containers
                     , cabal-plan ^>=0.7
                     , text
+                    , process
     hs-source-dirs:   app
     default-language: GHC2024
     default-extensions: OverloadedRecordDot
@@ -93,6 +94,7 @@ executable hls-lookup
                     , aeson
                     , bytestring
                     , mtl
+                    , text
     hs-source-dirs:   exe
     default-language: GHC2024
     default-extensions: OverloadedRecordDot

@@ -1,21 +1,23 @@
 module PlanLookup (shouldDownloadPackage, CabalPlanInfo(..)) where
 
-import Cabal.Plan (PlanJson, PkgId(..), PkgName(..), Unit, UnitId(..), decodePlanJson, pjUnits, uPId, uType, UnitType(..), uId, Ver (..))
+import Cabal.Plan (PlanJson, PkgId(..), PkgName(..), Unit (uPkgSrc), UnitId(..), decodePlanJson, pjUnits, uPId, uType, UnitType(..), uId, Ver (..), PkgLoc (RemoteSourceRepoPackage), SourceRepo (..), RepoType (..))
 import qualified Data.Map.Strict as Map
+import Data.Text (Text)
 import qualified Data.Text as T
 import System.FilePath ((</>))
 import System.Directory (doesFileExist, getCurrentDirectory)
 import Control.Exception (catch, SomeException)
 import Data.Function ((&))
-import Data.List (intercalate)
 
 data CabalPlanInfo =
-  ShouldDownload String String -- packageName, packageVersion
+  HackagePackage Text Text -- packageName, packageVersion
+  | GitRepo (Text,Text) -- (url,tag)
   | InternalPackage -- internal package, already handled by hls
   | UseHie -- fallback to raw unitid parsing, TODO: maybe just remove this
+  deriving (Show)
 
 -- | Determine if we should download a package based on its Unit ID.
-shouldDownloadPackage :: String -> IO CabalPlanInfo
+shouldDownloadPackage :: Text -> IO CabalPlanInfo
 shouldDownloadPackage unitIdStr = do
   mPlan <- loadPlanJson
   case mPlan of
@@ -34,7 +36,7 @@ loadPlanJson = do
                (\(_ :: SomeException) -> pure Nothing)
 
 -- | Check if a unit should be downloaded by looking it up in the plan
-checkUnit :: PlanJson -> String -> CabalPlanInfo
+checkUnit :: PlanJson -> Text -> CabalPlanInfo
 checkUnit plan unitIdStr =
   let units = pjUnits plan
    in case findUnit units unitIdStr of
@@ -43,18 +45,39 @@ checkUnit plan unitIdStr =
 
 -- | Determine if a specific unit should be downloaded
 shouldDownload :: Unit -> CabalPlanInfo
-shouldDownload u =
-  if not (isLocalPackage u || isBootLibrary u) then
-    extractNameAndVersion u
-  else
-    InternalPackage
+shouldDownload u
+  | isGitRepo u = extractGitRepo u
+  | not (isLocalPackage u || isBootLibrary u) = extractNameAndVersion u
+  | otherwise = InternalPackage
+
+isGitRepo :: Unit -> Bool
+isGitRepo u = case u.uPkgSrc of
+  Just (RemoteSourceRepoPackage repo) -> isGitSourceRepo repo
+  _ -> False
+  where
+    isGitSourceRepo repo = case repo.srType of
+      Just Git -> True
+      _ -> False
+
+extractGitRepo :: Unit -> CabalPlanInfo
+extractGitRepo u =
+  maybe UseHie GitRepo (extractGitLocation u)
+  where
+    extractGitLocation :: Unit -> Maybe (Text, Text)
+    extractGitLocation unit = do
+      src <- unit.uPkgSrc
+      RemoteSourceRepoPackage repo <- pure src
+      Git <- repo.srType
+      location <- repo.srLocation
+      tag <- repo.srTag
+      pure (location,tag)
 
 extractNameAndVersion :: Unit -> CabalPlanInfo
 extractNameAndVersion u = case u.uPId of
-    (PkgId (PkgName name) version) -> ShouldDownload (T.unpack name) (toVersionString version)
+    (PkgId (PkgName name) version) -> HackagePackage name (toVersionString version)
 
-toVersionString :: Ver -> String
-toVersionString (Ver version) = version & map show & intercalate "."
+toVersionString :: Ver -> Text
+toVersionString (Ver version) = version & map T.show & T.intercalate "."
 
 -- | Check if a unit is a local package (our own code, not from Hackage)
 isLocalPackage :: Unit -> Bool
@@ -79,9 +102,9 @@ isBootLibrary u =
     isPrefixOf (x:xs) (y:ys) = x == y && isPrefixOf xs ys
 
 -- | Find a unit in the plan by its Unit ID string
-findUnit :: Map.Map k Unit -> String -> Maybe Unit
+findUnit :: Map.Map k Unit -> Text -> Maybe Unit
 findUnit units searchId =
-  let searchText = T.pack searchId
+  let searchText = searchId
    in Map.foldl' (\acc u ->
         case uId u of
           UnitId unitText -> if unitText == searchText then Just u else acc)
