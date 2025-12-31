@@ -116,6 +116,7 @@ test-suite hls-lookup-tests
                     , filepath
                     , directory
                     , temporary
+                    , text
     default-language: GHC2024
     default-extensions: OverloadedRecordDot
                       , DuplicateRecordFields

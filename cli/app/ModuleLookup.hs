@@ -4,7 +4,7 @@ module ModuleLookup
   )
 where
 
-import Data.List (find, intercalate)
+import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (doesFileExist)
