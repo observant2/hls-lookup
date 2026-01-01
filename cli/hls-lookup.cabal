@@ -20,7 +20,7 @@ name:               hls-lookup
 -- PVP summary:     +-+------- breaking API changes
 --                  | | +----- non-breaking API additions
 --                  | | | +--- code changes with no API change
-version:            0.1.1.0
+version:            0.2.0.0
 
 -- A short (one-line) description of the package.
 -- synopsis:
@@ -76,6 +76,7 @@ library
                     , containers
                     , cabal-plan ^>=0.7
                     , text
+                    , process
     hs-source-dirs:   app
     default-language: GHC2024
     default-extensions: OverloadedRecordDot
@@ -93,6 +94,7 @@ executable hls-lookup
                     , aeson
                     , bytestring
                     , mtl
+                    , text
     hs-source-dirs:   exe
     default-language: GHC2024
     default-extensions: OverloadedRecordDot
@@ -114,6 +116,7 @@ test-suite hls-lookup-tests
                     , filepath
                     , directory
                     , temporary
+                    , text
     default-language: GHC2024
     default-extensions: OverloadedRecordDot
                       , DuplicateRecordFields

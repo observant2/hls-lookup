@@ -5,6 +5,8 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import System.IO.Temp (withSystemTempDirectory)
 import System.FilePath ((</>))
+import Data.Text (Text)
+import qualified Data.Text as T
 
 tests :: TestTree
 tests = testGroup "DefinitionFinder"
@@ -19,17 +21,17 @@ tests = testGroup "DefinitionFinder"
   ]
 
 -- Helper to create a temp file with content and find a symbol
-findInTempFile :: String -> String -> IO (Maybe DefinitionLocation)
+findInTempFile :: Text -> Text -> IO (Maybe DefinitionLocation)
 findInTempFile content symbolName = do
   withSystemTempDirectory "hls-lookup-test" $ \tmpDir -> do
     let filePath = tmpDir </> "Test.hs"
-    writeFile filePath content
+    writeFile filePath (T.unpack content)
     findDefinition filePath symbolName
 
 testTypeSignature :: TestTree
 testTypeSignature = testGroup "type signature"
   [ testCase "simple type signature" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "httpLBS :: Request -> IO Response"
@@ -39,7 +41,7 @@ testTypeSignature = testGroup "type signature"
       result @?= Just (DefinitionLocation 3 1)
 
   , testCase "type signature with indentation" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "  parseJSON :: Value -> Parser a"
@@ -52,7 +54,7 @@ testTypeSignature = testGroup "type signature"
 testFunctionDefinition :: TestTree
 testFunctionDefinition = testGroup "function definition"
   [ testCase "simple function definition" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "add x y = x + y"
@@ -61,7 +63,7 @@ testFunctionDefinition = testGroup "function definition"
       result @?= Just (DefinitionLocation 3 1)
 
   , testCase "function definition with guards" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "factorial n"
@@ -72,7 +74,7 @@ testFunctionDefinition = testGroup "function definition"
       result @?= Just (DefinitionLocation 3 1)
 
   , testCase "function with no parameters" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "myConstant = 42"
@@ -84,7 +86,7 @@ testFunctionDefinition = testGroup "function definition"
 testDataConstructor :: TestTree
 testDataConstructor = testGroup "data constructor"
   [ testCase "data type with constructors" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "data Result = Success | Failure"
@@ -93,7 +95,7 @@ testDataConstructor = testGroup "data constructor"
       result @?= Just (DefinitionLocation 3 1)
 
   , testCase "data constructor on separate line" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "data HttpException"
@@ -105,7 +107,7 @@ testDataConstructor = testGroup "data constructor"
       result @?= Just (DefinitionLocation 5 3)
 
   , testCase "data constructor with fields" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "data Person = Person { name :: String, age :: Int }"
@@ -117,7 +119,7 @@ testDataConstructor = testGroup "data constructor"
 testTypeDefinition :: TestTree
 testTypeDefinition = testGroup "type definition"
   [ testCase "type alias" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "type String = [Char]"
@@ -126,7 +128,7 @@ testTypeDefinition = testGroup "type definition"
       result @?= Just (DefinitionLocation 3 1)
 
   , testCase "type alias with parameters" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "type Map k v = Data.Map.Map k v"
@@ -138,7 +140,7 @@ testTypeDefinition = testGroup "type definition"
 testNewtypeDefinition :: TestTree
 testNewtypeDefinition = testGroup "newtype definition"
   [ testCase "simple newtype" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "newtype UserId = UserId Int"
@@ -147,7 +149,7 @@ testNewtypeDefinition = testGroup "newtype definition"
       result @?= Just (DefinitionLocation 3 1)
 
   , testCase "newtype with record syntax" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "newtype Wrapper = Wrapper { unwrap :: String }"
@@ -159,7 +161,7 @@ testNewtypeDefinition = testGroup "newtype definition"
 testClassDefinition :: TestTree
 testClassDefinition = testGroup "class definition"
   [ testCase "simple class" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "class Monad m where"
@@ -170,7 +172,7 @@ testClassDefinition = testGroup "class definition"
       result @?= Just (DefinitionLocation 3 1)
 
   , testCase "class with context" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "class (Eq a) => Ord a where"
@@ -183,7 +185,7 @@ testClassDefinition = testGroup "class definition"
 testMultipleOccurrences :: TestTree
 testMultipleOccurrences = testGroup "multiple occurrences"
   [ testCase "returns first definition (type signature)" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "foo :: Int"
@@ -198,7 +200,7 @@ testMultipleOccurrences = testGroup "multiple occurrences"
 testNotFound :: TestTree
 testNotFound = testGroup "not found"
   [ testCase "symbol not in file" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "foo = 42"
@@ -207,7 +209,7 @@ testNotFound = testGroup "not found"
       result @?= Nothing
 
   , testCase "symbol as substring" $ do
-      let content = unlines
+      let content = T.unlines
             [ "module Test where"
             , ""
             , "foobar = 42"

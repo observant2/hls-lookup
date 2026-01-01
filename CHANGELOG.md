@@ -1,5 +1,10 @@
 # Revision history for hls-lookup
 
+## 0.2.0 -- 2025-12-31
+
+* Fix hie file lookup when there are multiple cabal projects
+* Add support for remote git repo references
+
 ## 0.1.1.0 -- 2025-12-19
 
 * Remove progress functionality leading to faster/more stable results

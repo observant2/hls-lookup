@@ -1,13 +1,15 @@
 module Main where
 
 import qualified HieReader as HR
-import PackageDownload (downloadPackage)
+import PackageDownload (downloadPackage, downloadGitSource)
 import System.Environment (getArgs)
 import ModuleLookup (findModuleFile)
 import DefinitionFinder (findDefinition, DefinitionLocation(..))
 import System.Process (callCommand)
 import System.Exit (exitFailure)
 import Data.Aeson as Aeson ( encode )
+import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Util (putErr)
 import Control.Monad.Except
@@ -18,6 +20,7 @@ import qualified PlanLookup
 import SymbolLookup (getSymbolsAtPosition)
 import Types ( GotoResponse(GotoResponse) ) 
 import LookupTypes (SymbolInfo(..))
+import Data.Function ((&))
 
 data GotoAction
     = Print
@@ -28,40 +31,45 @@ data GotoAction
 main :: IO ()
 main = do
     args <- getArgs
-    case args of
+    case args & map T.pack of
         ["download", name, version] -> do
             path <- downloadPackage name version
-            putErr $ "Source location: " ++ path
+            case path of
+                Right p -> putErr $ "Source location: " <> T.pack p
+                Left err -> putErr $ "Error downloading: " <> err
 
         ["inspect-hie", srcFile] -> do
-            mHiePath <- HR.findHieFile srcFile
+            mHiePath <- HR.findHieFile $ T.unpack srcFile
             case mHiePath of
-                Nothing -> putErr $ "No .hie file found for " ++ srcFile
+                Nothing -> putErr $ "No .hie file found for " <> srcFile
                 Just hiePath -> do
-                    putErr $ "Found .hie file: " ++ hiePath
+                    putErr $ "Found .hie file: " <> T.pack hiePath
                     HR.inspectHieFile hiePath
 
         ["find-symbol", srcFile, lineStr, colStr] -> do
-            let line = read lineStr :: Int
-            let col = read colStr :: Int
-            mHiePath <- HR.findHieFile srcFile
+            let line = read (T.unpack lineStr) :: Int
+            let col = read (T.unpack colStr) :: Int
+            mHiePath <- HR.findHieFile (T.unpack srcFile)
             case mHiePath of
-                Nothing -> putErr $ "No .hie file found for " ++ srcFile
+                Nothing -> putErr $ "No .hie file found for " <> srcFile
                 Just hiePath -> HR.findSymbolAt hiePath line col
 
         ["test-module-lookup", packageName, version, moduleName] -> do
             packageDir <- downloadPackage packageName version
-            putErr $ "Looking for module: " ++ moduleName
-            mFilePath <- findModuleFile packageDir moduleName
-            case mFilePath of
-                Nothing -> putErr $ "Module not found: " ++ moduleName
-                Just filePath -> putErr $ "Found module at: " ++ filePath
+            case packageDir of
+                Right dir -> do
+                    putErr $ "Looking for module: " <> moduleName
+                    mFilePath <- findModuleFile dir moduleName
+                    case mFilePath of
+                        Nothing -> putErr $ "Module not found: " <> moduleName
+                        Just filePath -> putErr $ "Found module at: " <> T.pack filePath
+                Left err -> putErr $ "Error looking for module: " <> err
 
-        ["goto", srcFile, lineStr, colStr] -> gotoDefinition srcFile (read lineStr) (read colStr) OpenFile
+        ["goto", srcFile, lineStr, colStr] -> gotoDefinition (T.unpack srcFile) (read (T.unpack lineStr)) (read (T.unpack colStr)) OpenFile
 
-        ["goto-print", srcFile, lineStr, colStr] -> gotoDefinition srcFile (read lineStr) (read colStr) Print
+        ["goto-print", srcFile, lineStr, colStr] -> gotoDefinition (T.unpack srcFile) (read (T.unpack lineStr)) (read (T.unpack colStr)) Print
 
-        ["goto-json", srcFile, lineStr, colStr] -> gotoDefinition srcFile (read lineStr) (read colStr) PrintJson
+        ["goto-json", srcFile, lineStr, colStr] -> gotoDefinition (T.unpack srcFile) (read (T.unpack lineStr)) (read (T.unpack colStr)) PrintJson
 
         _ -> putErr "Usage:\n\
                         \  hls-lookup download <package> <version>\n\
@@ -91,7 +99,7 @@ gotoDefinition srcFile line col gotoAction = do
 
         -- Step 2: Load HIE file and get symbols at position
         hieFile <- liftIO $ HR.loadHieFile hiePath
-        liftIO $ putErr $ "Finding symbol at " ++ show line ++ ":" ++ show col
+        liftIO $ putErr $ "Finding symbol at " <> T.show line <> ":" <> T.show col
         let symbols = reverse $ getSymbolsAtPosition hieFile line col
 
         -- Check if we found any symbols
@@ -107,96 +115,106 @@ gotoDefinition srcFile line col gotoAction = do
             Just m -> pure m
             Nothing -> throwError "No module name in symbol info"
 
-        -- Get package name and version
-        (pkgName, pkgVer) <- case firstSymbol.rawUnitId of
+        -- Look up cabal.plan
+        act <- case firstSymbol.rawUnitId of
             Just unitId -> do
                 action <- liftIO $ PlanLookup.shouldDownloadPackage unitId
                 case action of
-                    PlanLookup.ShouldDownload name ver -> do
-                        liftIO $ putErr $ "External Hackage package: " ++ name ++ "-" ++ ver
-                        pure (name, ver)
+                    hackagepackage@(PlanLookup.HackagePackage name ver) -> do
+                        liftIO $ putErr $ "External Hackage package: " <> name <> "-" <> ver
+                        pure hackagepackage
+                    gitrepo@(PlanLookup.GitRepo (url,tag)) -> do
+                        liftIO $ putErr $ "git repo found: " <> url <> ", tag: " <> tag
+                        pure gitrepo
                     PlanLookup.InternalPackage -> do
-                        liftIO $ putErr $ "Skipping internal package: " ++ unitId
+                        liftIO $ putErr $ "Skipping internal package: " <> unitId
                         throwError "Not an external Hackage package - skipping"
                     PlanLookup.UseHie -> do
-                        liftIO $ putErr "Plan.json not available, parsing from HIE file..."
-                        -- Fall back to parsing unit ID
-                        case parseUnitId unitId of
-                            Just (name, ver) -> pure (name, ver)
-                            Nothing -> throwError $ "Could not parse package info from Unit ID: " ++ unitId
+                        throwError "Plan.json not available"
             Nothing -> throwError "No unit ID in symbol info"
 
         -- Step 5: Download package
-        liftIO $ putErr $ "Found symbol: " ++ symName
-        liftIO $ putErr $ "  Module: " ++ modName
-        liftIO $ putErr $ "  Package: " ++ pkgName ++ "-" ++ pkgVer
-        liftIO $ putErr "\nDownloading package..."
-        packageDir <- liftIO $ downloadPackage pkgName pkgVer
-        liftIO $ putErr $ "Package cached at: " ++ packageDir
+        packageDir <- 
+            case act of
+                PlanLookup.HackagePackage name ver -> do
+                    liftIO $ putErr $ "Found symbol: " <> symName
+                    liftIO $ putErr $ "  Module: " <> modName
+                    liftIO $ putErr $ "  Package: " <> name <> "-" <> ver
+                    liftIO $ putErr "\nDownloading package..."
+                    liftIO $ downloadPackage name ver
+                PlanLookup.GitRepo (url, tag) -> do
+                    liftIO $ putErr "\nDownloading git Repo"
+                    liftIO $ downloadGitSource url tag
+                a -> throwError $ "unhandled PlanLookup action: " <> T.show a
 
-        -- Step 6: Find module file
-        moduleFile <- findModuleFileE packageDir modName
+        case packageDir of
+            Left err -> throwError $ "No package could be donwloaded: " <> err
+            Right dir -> do
 
-        -- Step 7: Find definition
-        liftIO $ putErr $ "\nSearching for definition of: " ++ symName
-        mDefLoc <- liftIO $ findDefinition moduleFile symName
-        let (defLine, defCol) = case mDefLoc of
-                Nothing -> (1, 1)
-                Just defLoc -> (defLoc.line, defLoc.column)
+                -- Step 6: Find module file
+                moduleFile <- findModuleFileE dir modName
 
-        -- Log result
-        liftIO $ case mDefLoc of
-            Nothing -> do
-                putErr $ "Warning: Could not find definition of " ++ symName ++ " in " ++ moduleFile
-                putErr "Opening file at top..."
-            Just defLoc ->
-                putErr $ "Found definition at line " ++ show defLoc.line ++ ", column " ++ show defLoc.column
+                -- Step 7: Find definition
+                liftIO $ putErr $ "\nSearching for definition of: " <> symName
+                mDefLoc <- liftIO $ findDefinition moduleFile symName
+                let (defLine, defCol) = case mDefLoc of
+                        Nothing -> (1, 1)
+                        Just defLoc -> (defLoc.line, defLoc.column)
 
-        -- Return all the data
-        pure (moduleFile, defLine, defCol, symName, pkgName)
+                -- Log result
+                liftIO $ case mDefLoc of
+                    Nothing -> do
+                        putErr $ "Warning: Could not find definition of " <> symName <> " in " <> T.pack moduleFile
+                        putErr "Opening file at top..."
+                    Just defLoc ->
+                        putErr $ "Found definition at line " <> T.show defLoc.line <> ", column " <> T.show defLoc.column
+
+                -- Return all the data
+                pure (moduleFile, defLine, defCol, symName, "")
 
     -- Handle the result
     case result of
         Left err ->
             case gotoAction of
                 PrintJson -> printJsonFailure err
-                _ -> do
+                _ -> do 
                     putErr err
                     exitFailure
         Right (file, line, col, sym, pkg) ->
             performAction gotoAction file line col sym pkg
+        
 
 -- | Find HIE file or fail with error
-findHieFileE :: FilePath -> ExceptT String IO FilePath
+findHieFileE :: FilePath -> ExceptT Text IO FilePath
 findHieFileE srcFile = do
-    liftIO $ putErr $ "Looking for HIE file for: " ++ srcFile
+    liftIO $ putErr $ "Looking for HIE file for: " <> T.pack srcFile
     mHiePath <- liftIO $ HR.findHieFile srcFile
     case mHiePath of
         Nothing -> do
-            liftIO $ putErr "Hint: Make sure the project is compiled with -fwrite-ide-info"
-            throwError $ "No .hie file found for " ++ srcFile
+            throwError $ "No .hie file found for " <> T.pack srcFile 
+                <> "\nHint: Make sure the project is compiled with -fwrite-ide-info"
         Just hiePath -> do
-            liftIO $ putErr $ "Found HIE file: " ++ hiePath
+            liftIO $ putErr $ "Found HIE file: " <> T.pack hiePath
             pure hiePath
 
 -- | Find module file or fail with error
-findModuleFileE :: FilePath -> String -> ExceptT String IO FilePath
+findModuleFileE :: FilePath -> Text -> ExceptT Text IO FilePath
 findModuleFileE packageDir moduleName = do
-    liftIO $ putErr $ "\nLooking for module: " ++ moduleName
+    liftIO $ putErr $ "\nLooking for module: " <> moduleName
     mFile <- liftIO $ findModuleFile packageDir moduleName
     case mFile of
-        Nothing -> throwError $ "Could not find module file for " ++ moduleName
+        Nothing -> throwError $ "Could not find module file for " <> moduleName
         Just file -> do
-            liftIO $ putErr $ "Found module at: " ++ file
+            liftIO $ putErr $ "Found module at: " <> T.pack file
             pure file
 
 -- | Perform the action based on GotoAction
-performAction :: GotoAction -> FilePath -> Int -> Int -> String -> String -> IO ()
+performAction :: GotoAction -> FilePath -> Int -> Int -> Text -> Text -> IO ()
 performAction OpenFile file line col _ _ = openInVSCode file line col
 performAction Print file line col _ _ = printLocation file line col
 performAction PrintJson file line col sym pkg = printJson file line col sym pkg
 
-printJson :: FilePath -> Int -> Int -> String -> String -> IO ()
+printJson :: FilePath -> Int -> Int -> Text -> Text -> IO ()
 printJson moduleFile line col symbolName packageName =
     BS.putStrLn $ Aeson.encode
         (GotoResponse
@@ -208,7 +226,7 @@ printJson moduleFile line col symbolName packageName =
             (Just packageName)
             "Symbol found!")
 
-printJsonFailure :: String -> IO ()
+printJsonFailure :: Text -> IO ()
 printJsonFailure message =
     BS.putStrLn $ Aeson.encode
         (GotoResponse False Nothing Nothing Nothing Nothing Nothing message)
@@ -217,12 +235,12 @@ printJsonFailure message =
 -- | Open a file in VSCode at a specific line and column
 openInVSCode :: FilePath -> Int -> Int -> IO ()
 openInVSCode filePath line col = do
-    let location = filePath ++ ":" ++ show line ++ ":" ++ show col
-    putErr $ "\nOpening in VSCode: " ++ location
-    callCommand $ "code --goto " ++ show location
+    let location = filePath <> ":" <> show line <> ":" <> show col
+    putErr $ "\nOpening in VSCode: " <> T.pack location
+    callCommand $ "code --goto " <> show location
 
 -- | Print the file location (for scripting/integration)
 printLocation :: FilePath -> Int -> Int -> IO ()
 printLocation filePath line col = do
     putErr "\n=== DEFINITION LOCATION ==="
-    putErr $ filePath ++ ":" ++ show line ++ ":" ++ show col
+    putErr $ T.pack filePath <> ":" <> T.show line <> ":" <> T.show col

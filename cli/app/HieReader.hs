@@ -11,9 +11,11 @@ import GHC.Iface.Ext.Binary (HieFileResult (..), readHieFile)
 import GHC.Iface.Ext.Types (HieFile (hie_asts, hie_hs_file, hie_module), getAsts)
 import GHC.Types.Name.Cache (initNameCache)
 import GHC.Unit.Module (moduleName, moduleNameString)
-import System.Directory (doesFileExist, doesDirectoryExist, listDirectory, canonicalizePath)
-import System.FilePath (takeExtension, (</>))
+import System.Directory (doesFileExist, doesDirectoryExist, listDirectory, makeAbsolute, canonicalizePath)
+import qualified Data.Text as T
+import System.FilePath (takeExtension, takeDirectory, (</>))
 import Control.Monad (filterM)
+import Control.Exception (catch, SomeException)
 import SymbolLookup
 import LookupTypes
 
@@ -24,22 +26,47 @@ loadHieFile hiePath = do
   result <- readHieFile nameCache hiePath
   return result.hie_file_result
 
-hieFolder :: String
-hieFolder = ".hie"
+-- | Find the package root by traversing up from a directory looking for a .cabal file
+-- Returns Nothing if no .cabal file is found (reaches filesystem root)
+findPackageRoot :: FilePath -> IO (Maybe FilePath)
+findPackageRoot dir = do
+  -- Try to list directory, handle failures by moving to parent
+  mEntries <- (Just <$> listDirectory dir) `catch` \(_ :: SomeException) -> pure Nothing
+
+  case mEntries of
+    Just entries -> do
+      let hasCabalFile = any (\f -> takeExtension f == ".cabal") entries
+      if hasCabalFile
+        then pure (Just dir)
+        else tryParent
+    Nothing -> pure Nothing
+  where
+    tryParent = do
+      let parentDir = takeDirectory dir
+      -- Stop if we've reached the root (parent == current)
+      if parentDir == dir
+        then pure Nothing
+        else findPackageRoot parentDir
 
 -- | Find .hie file for a source file by searching recursively in .hie/ directory
 -- Verifies the match by checking the hie_hs_file field inside the HIE file
+-- For multi-project setups, finds the package root by looking for .cabal file
 findHieFile :: FilePath -> IO (Maybe FilePath)
 findHieFile srcFile = do
   canonicalSrc <- canonicalizePath srcFile
 
-  hieExists <- doesDirectoryExist hieFolder
-  if not hieExists
-    then return Nothing
-    else do
-      hieFiles <- findHieFilesRecursive hieFolder
-
-      findMatchingHie canonicalSrc hieFiles
+  -- Find the package root (directory containing .cabal file)
+  mPackageRoot <- findPackageRoot (takeDirectory canonicalSrc)
+  case mPackageRoot of
+    Nothing -> return Nothing  -- No .cabal file found
+    Just packageRoot -> do
+      let hieFolder = packageRoot </> ".hie"
+      hieExists <- doesDirectoryExist hieFolder
+      if not hieExists
+        then return Nothing
+        else do
+          hieFiles <- findHieFilesRecursive hieFolder
+          findMatchingHie packageRoot canonicalSrc hieFiles
   where
     findHieFilesRecursive :: FilePath -> IO [FilePath]
     findHieFilesRecursive dir = do
@@ -56,16 +83,16 @@ findHieFile srcFile = do
 
       return (hieFiles ++ subHieFiles)
 
-    findMatchingHie :: FilePath -> [FilePath] -> IO (Maybe FilePath)
-    findMatchingHie _ [] = return Nothing
-    findMatchingHie canonical (hiePath:rest) = do
+    findMatchingHie :: FilePath -> FilePath -> [FilePath] -> IO (Maybe FilePath)
+    findMatchingHie _ _ [] = pure Nothing
+    findMatchingHie packageRoot canonical (hiePath:rest) = do
       -- Load the HIE file and check if it matches
       hieFile <- loadHieFile hiePath
-      canonicalHieSrc <- canonicalizePath hieFile.hie_hs_file
+      let canonicalHieSrc = packageRoot </> hieFile.hie_hs_file
 
       if canonicalHieSrc == canonical
-        then return (Just hiePath)
-        else findMatchingHie canonical rest
+        then pure (Just hiePath)
+        else findMatchingHie packageRoot canonical rest
 
 -- | Test function to inspect what's in a .hie file
 inspectHieFile :: FilePath -> IO ()
@@ -84,7 +111,7 @@ findSymbolAt hiePath line col = do
   mapM_ printSymbol symbols
   where
     printSymbol sym = do
-      putStrLn $ "  Name: " ++ sym.name
-      putStrLn $ "  Module: " ++ show sym.symModule
-      putStrLn $ "  Raw Unit ID: " ++ show sym.rawUnitId
+      putStrLn $ "  Name: " <> T.unpack sym.name
+      putStrLn $ "  Module: " <> show sym.symModule
+      putStrLn $ "  Raw Unit ID: " <> show sym.rawUnitId
       putStrLn ""
